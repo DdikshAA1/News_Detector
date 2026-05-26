@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fake News Detector — AI Powered</title>
+
+    <!-- Bootstrap 5 for responsive layout and components -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+
+    <!-- Bootstrap Icons for the shield, check, and warning icons -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
+      rel="stylesheet"
+    />
+
+    <!-- Our custom dark-theme stylesheet -->
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/style.css') }}"
+    />
+  </head>
+
+  <body>
+    <!-- ================================================================== -->
+    <!--  NAVBAR                                                              -->
+    <!-- ================================================================== -->
+    <nav class="navbar navbar-dark">
+      <div class="container">
+        <span class="navbar-brand d-flex align-items-center gap-2">
+          <i class="bi bi-shield-shaded text-accent fs-4"></i>
+          <span>FakeNewsAI</span>
+          <span class="badge badge-ai ms-1">ML Powered</span>
+        </span>
+        <span class="navbar-text text-muted small d-none d-sm-block">
+          Logistic Regression · TF-IDF · NLTK
+        </span>
+      </div>
+    </nav>
+
+    <!-- ================================================================== -->
+    <!--  HERO SECTION                                                        -->
+    <!-- ================================================================== -->
+    <section class="hero">
+      <div class="container text-center">
+        <!-- Animated shield icon -->
+        <div class="hero-icon mb-4">
+          <i class="bi bi-shield-check"></i>
+        </div>
+
+        <h1 class="hero-title">
+          Detect <span class="text-accent">Fake News</span> with AI
+        </h1>
+        <p class="hero-subtitle">
+          Powered by Machine Learning & Natural Language Processing. Paste any
+          headline or article and get an instant AI verdict.
+        </p>
+
+        <!-- Tech stack pills -->
+        <div class="tech-pills mb-4">
+          <span class="tech-pill">scikit-learn</span>
+          <span class="tech-pill">TF-IDF</span>
+          <span class="tech-pill">NLTK</span>
+          <span class="tech-pill">Logistic Regression</span>
+          <span class="tech-pill">Flask</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!--  MAIN CARD                                                           -->
+    <!-- ================================================================== -->
+    <main class="container mb-5">
+      <div class="row justify-content-center">
+        <div class="col-lg-8">
+          <div class="card-glass p-4 p-md-5">
+            <!-- Input Form -->
+            <form id="newsForm" novalidate>
+              <label for="newsText" class="form-label label-custom">
+                <i class="bi bi-newspaper me-2 text-accent"></i>
+                Enter News Headline or Article
+              </label>
+
+              <div class="textarea-wrapper mb-1">
+                <textarea
+                  id="newsText"
+                  class="form-control textarea-custom"
+                  rows="6"
+                  placeholder="Paste your news headline or article text here…
+
+Example:
+• 'SHOCKING: Scientists Discover Government Has Been Hiding Cure'
+• 'Federal Reserve releases quarterly economic data amid inflation concerns'"
+                  maxlength="5000"
+                ></textarea>
+                <!-- Live character counter -->
+                <span class="char-counter" id="charCounter">0 / 5000</span>
+              </div>
+
+              <!-- Quick example buttons -->
+              <div class="mb-4">
+                <small class="text-muted me-2">Quick examples:</small>
+                <button
+                  type="button"
+                  class="btn btn-example me-1 mb-1"
+                  data-text="SHOCKING: Scientists Discover Government Has Been Hiding Cancer Cure for Decades — Share Before Deleted"
+                >
+                  <i class="bi bi-exclamation-triangle me-1"></i>Fake Example
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-example mb-1"
+                  data-text="Federal Reserve officials announced a 0.25% interest rate adjustment following the quarterly economic review, citing stable inflation data."
+                >
+                  <i class="bi bi-check-circle me-1"></i>Real Example
+                </button>
+              </div>
+
+              <!-- Submit button -->
+              <button
+                type="submit"
+                class="btn btn-analyse w-100"
+                id="analyseBtn"
+              >
+                <span class="btn-text">
+                  <i class="bi bi-cpu me-2"></i>Analyse with AI
+                </span>
+                <span class="btn-loading d-none">
+                  <span class="spinner-border spinner-border-sm me-2"></span>
+                  Analysing & Cross-Referencing...
+                </span>
+              </button>
+            </form>
+
+            <!-- ============================================================ -->
+            <!--  RESULT PANEL (hidden until prediction returns)               -->
+            <!-- ============================================================ -->
+            <div id="resultPanel" class="result-panel mt-4 d-none">
+              <!-- Verdict banner -->
+              <div class="verdict-banner" id="verdictBanner">
+                <div class="verdict-icon" id="verdictIcon">
+                  <i class="bi" id="verdictIconClass"></i>
+                </div>
+                <div>
+                  <div class="verdict-label" id="verdictLabel">— NEWS</div>
+                  <div class="verdict-sub" id="verdictSub"></div>
+                </div>
+              </div>
+
+              <!-- Reason Card — WHY it's fake/real -->
+              <div class="reason-card mt-3">
+                <div class="reason-header">
+                  <i class="bi bi-lightbulb"></i>
+                  Analysis Reason
+                </div>
+                <p class="reason-text" id="reasonText">—</p>
+              </div>
+
+              <!-- Confidence bar -->
+              <div class="confidence-section mt-4">
+                <div class="d-flex justify-content-between mb-1">
+                  <span class="conf-title">
+                    <i class="bi bi-graph-up me-1 text-accent"></i>
+                    Combined Confidence Score
+                  </span>
+                  <span class="conf-pct" id="confPct">0%</span>
+                </div>
+                <div class="progress-track">
+                  <div
+                    class="progress-fill"
+                    id="progressFill"
+                    style="width: 0%"
+                  ></div>
+                </div>
+              </div>
+
+              <!-- Analysis Breakdown — ML vs Web vs Language -->
+              <div class="analysis-breakdown mt-4">
+                <div class="analysis-card">
+                  <div class="analysis-icon"><i class="bi bi-cpu"></i></div>
+                  <div class="analysis-label">ML Model</div>
+                  <div class="analysis-value" id="mlScoreVal">—</div>
+                </div>
+                <div class="analysis-card">
+                  <div class="analysis-icon"><i class="bi bi-globe2"></i></div>
+                  <div class="analysis-label">Web Verification</div>
+                  <div class="analysis-value" id="webScoreVal">—</div>
+                </div>
+                <div class="analysis-card">
+                  <div class="analysis-icon"><i class="bi bi-chat-text"></i></div>
+                  <div class="analysis-label">Language Check</div>
+                  <div class="analysis-value" id="langScoreVal">—</div>
+                </div>
+              </div>
+
+              <!-- Probability breakdown -->
+              <div class="prob-grid mt-4">
+                <div class="prob-card prob-fake">
+                  <div class="prob-icon"><i class="bi bi-x-octagon"></i></div>
+                  <div class="prob-label">FAKE Probability</div>
+                  <div class="prob-value" id="fakeProb">0%</div>
+                </div>
+                <div class="prob-card prob-real">
+                  <div class="prob-icon">
+                    <i class="bi bi-check-circle"></i>
+                  </div>
+                  <div class="prob-label">REAL Probability</div>
+                  <div class="prob-value" id="realProb">0%</div>
+                </div>
+              </div>
+
+              <!-- Sources Panel — Web cross-reference results -->
+              <div class="sources-panel mt-4" id="sourcesPanel">
+                <div class="sources-header">
+                  <div class="sources-header-left">
+                    <i class="bi bi-search text-accent"></i>
+                    Global Source Cross-Reference
+                  </div>
+                  <span class="sources-count" id="sourcesCount">0 sources</span>
+                </div>
+                <ul class="source-list" id="sourceList">
+                  <!-- Populated by JS -->
+                </ul>
+              </div>
+
+              <!-- Metadata row -->
+              <div class="meta-row mt-3">
+                <div class="meta-item">
+                  <i class="bi bi-body-text text-muted"></i>
+                  <span id="wordCount">—</span> words analysed
+                </div>
+                <div class="meta-item">
+                  <i class="bi bi-globe text-muted"></i>
+                  <span id="trustedCount">0</span> trusted sources
+                </div>
+                <div class="meta-item">
+                  <i class="bi bi-clock text-muted"></i>
+                  <span id="responseTime">—</span> ms
+                </div>
+              </div>
+
+              <!-- Disclaimer -->
+              <p class="disclaimer mt-3">
+                <i class="bi bi-info-circle me-1"></i>
+                This tool combines ML predictions with real-time web verification.
+                Results may vary. Always verify news from multiple trusted sources.
+              </p>
+            </div>
+            <!-- /resultPanel -->
+
+            <!-- Error panel -->
+            <div id="errorPanel" class="error-panel mt-4 d-none">
+              <i class="bi bi-exclamation-triangle me-2"></i>
+              <span id="errorMsg">An error occurred.</span>
+            </div>
+          </div>
+          <!-- /card-glass -->
+
+          <!-- ============================================================== -->
+          <!--  HOW IT WORKS SECTION                                           -->
+          <!-- ============================================================== -->
+          <div class="how-it-works mt-5">
+            <h2 class="section-title text-center mb-4">
+              <i class="bi bi-diagram-3 me-2 text-accent"></i>How It Works
+            </h2>
+
+            <div class="row g-3">
+              <div class="col-md-3 col-6">
+                <div class="step-card">
+                  <div class="step-num">01</div>
+                  <div class="step-icon"><i class="bi bi-type"></i></div>
+                  <div class="step-title">Preprocess</div>
+                  <div class="step-desc">
+                    Lowercase, remove punctuation, strip stopwords, apply
+                    stemming
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-3 col-6">
+                <div class="step-card">
+                  <div class="step-num">02</div>
+                  <div class="step-icon"><i class="bi bi-grid-3x3"></i></div>
+                  <div class="step-title">TF-IDF</div>
+                  <div class="step-desc">
+                    Convert text to a numerical vector of 10,000 weighted word
+                    features
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-3 col-6">
+                <div class="step-card">
+                  <div class="step-num">03</div>
+                  <div class="step-icon"><i class="bi bi-activity"></i></div>
+                  <div class="step-title">Classify</div>
+                  <div class="step-desc">
+                    Logistic Regression scores each feature and picks FAKE or
+                    REAL
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-3 col-6">
+                <div class="step-card">
+                  <div class="step-num">04</div>
+                  <div class="step-icon"><i class="bi bi-bar-chart"></i></div>
+                  <div class="step-title">Confidence</div>
+                  <div class="step-desc">
+                    predict_proba() returns the probability score for each class
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- /col -->
+      </div>
+      <!-- /row -->
+    </main>
+
+    <!-- ================================================================== -->
+    <!--  FOOTER                                                              -->
+    <!-- ================================================================== -->
+    <footer class="footer text-center py-4">
+      <div class="container">
+        <p class="mb-1 text-muted small">
+          Built with
+          <i class="bi bi-heart-fill text-accent mx-1"></i>
+          using Python · Flask · scikit-learn · NLTK · Bootstrap 5
+        </p>
+        <p class="mb-0 text-muted small">
+          A beginner-friendly AI/ML portfolio project
+        </p>
+      </div>
+    </footer>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Our custom JavaScript -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  </body>
+</html>

@@ -1,0 +1,803 @@
+/* =========================================================================
+   style.css — Dark theme for the Fake News Detector
+   =========================================================================
+
+   STRUCTURE:
+   1.  CSS variables (design tokens)
+   2.  Reset & base
+   3.  Navbar
+   4.  Hero section
+   5.  Main card (glassmorphism)
+   6.  Form elements
+   7.  Result panel
+   8.  Verdict banner
+   9.  Confidence bar
+   10. Probability grid
+   11. Metadata row
+   12. How It Works section
+   13. Footer
+   14. Animations
+   15. Responsive tweaks
+   ========================================================================= */
+
+/* -------------------------------------------------------------------------
+   1. CSS Variables
+   — Define colours and sizes once, reuse everywhere.
+   — Changing one variable updates the whole UI consistently.
+   ------------------------------------------------------------------------- */
+:root {
+  --bg-base:        #0a0d14;     /* page background — near black */
+  --bg-card:        #111827;     /* card background */
+  --bg-glass:       rgba(17, 24, 39, 0.85);
+  --bg-input:       #1a2235;     /* textarea background */
+  --bg-step:        #131c2e;
+  --border-subtle:  rgba(99, 179, 237, 0.12);
+  --border-input:   rgba(99, 179, 237, 0.2);
+
+  --accent:         #63b3ed;     /* primary brand blue */
+  --accent-glow:    rgba(99, 179, 237, 0.25);
+  --fake-color:     #fc8181;     /* red for FAKE */
+  --fake-bg:        rgba(252, 129, 129, 0.08);
+  --fake-border:    rgba(252, 129, 129, 0.3);
+  --real-color:     #68d391;     /* green for REAL */
+  --real-bg:        rgba(104, 211, 145, 0.08);
+  --real-border:    rgba(104, 211, 145, 0.3);
+
+  --text-primary:   #e2e8f0;
+  --text-muted:     #718096;
+  --text-dim:       #4a5568;
+
+  --radius-md:      0.75rem;
+  --radius-lg:      1.25rem;
+  --radius-xl:      1.75rem;
+
+  --transition:     0.3s ease;
+  --font:           'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+/* -------------------------------------------------------------------------
+   2. Reset & Base
+   ------------------------------------------------------------------------- */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family:      var(--font);
+  background-color: var(--bg-base);
+  color:            var(--text-primary);
+  min-height:       100vh;
+  background-image:
+    radial-gradient(ellipse at 20% 10%, rgba(99, 179, 237, 0.06) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 80%, rgba(104, 211, 145, 0.04) 0%, transparent 60%);
+  background-attachment: fixed;
+}
+
+/* -------------------------------------------------------------------------
+   3. Navbar
+   ------------------------------------------------------------------------- */
+.navbar {
+  background: rgba(10, 13, 20, 0.9);
+  border-bottom: 1px solid var(--border-subtle);
+  backdrop-filter: blur(12px);
+  padding: 0.875rem 0;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.navbar-brand {
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+  color: var(--text-primary) !important;
+}
+
+.text-accent { color: var(--accent) !important; }
+
+.badge-ai {
+  background: var(--accent-glow);
+  color: var(--accent);
+  border: 1px solid rgba(99, 179, 237, 0.4);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  border-radius: 999px;
+  padding: 0.2em 0.6em;
+}
+
+/* -------------------------------------------------------------------------
+   4. Hero Section
+   ------------------------------------------------------------------------- */
+.hero {
+  padding: 4rem 0 2.5rem;
+  text-align: center;
+}
+
+.hero-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  background: var(--accent-glow);
+  border: 1px solid rgba(99, 179, 237, 0.3);
+  animation: pulse-ring 3s ease-in-out infinite;
+}
+
+.hero-icon i {
+  font-size: 2.5rem;
+  color: var(--accent);
+  animation: float 4s ease-in-out infinite;
+}
+
+.hero-title {
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin-bottom: 1rem;
+}
+
+.hero-subtitle {
+  font-size: 1rem;
+  color: var(--text-muted);
+  max-width: 520px;
+  margin: 0 auto 1.5rem;
+  line-height: 1.65;
+}
+
+.tech-pills {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.tech-pill {
+  background: rgba(99, 179, 237, 0.08);
+  border: 1px solid var(--border-input);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* -------------------------------------------------------------------------
+   5. Main Card (glassmorphism)
+   ------------------------------------------------------------------------- */
+.card-glass {
+  background:     var(--bg-glass);
+  border:         1px solid var(--border-subtle);
+  border-radius:  var(--radius-xl);
+  backdrop-filter: blur(20px);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.03),
+    0 24px 48px rgba(0,0,0,0.4);
+}
+
+/* -------------------------------------------------------------------------
+   6. Form Elements
+   ------------------------------------------------------------------------- */
+.label-custom {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 0.75rem;
+  display: block;
+}
+
+.textarea-wrapper { position: relative; }
+
+.textarea-custom {
+  background:     var(--bg-input) !important;
+  border:         1px solid var(--border-input) !important;
+  border-radius:  var(--radius-md) !important;
+  color:          var(--text-primary) !important;
+  font-size:      0.95rem;
+  line-height:    1.65;
+  resize:         vertical;
+  padding:        1rem 1rem 2rem !important;
+  transition:     border-color var(--transition), box-shadow var(--transition);
+  width:          100%;
+}
+
+.textarea-custom::placeholder { color: var(--text-dim); }
+
+.textarea-custom:focus {
+  outline:     none;
+  border-color: rgba(99, 179, 237, 0.5) !important;
+  box-shadow:   0 0 0 3px var(--accent-glow) !important;
+}
+
+.char-counter {
+  position:  absolute;
+  bottom:    0.5rem;
+  right:     0.75rem;
+  font-size: 0.72rem;
+  color:     var(--text-dim);
+  pointer-events: none;
+}
+
+/* Example buttons */
+.btn-example {
+  background:    rgba(99, 179, 237, 0.07);
+  border:        1px solid var(--border-input);
+  color:         var(--text-muted);
+  font-size:     0.75rem;
+  border-radius: 999px;
+  padding:       0.3rem 0.75rem;
+  transition:    all var(--transition);
+}
+
+.btn-example:hover {
+  background: rgba(99, 179, 237, 0.15);
+  color:      var(--accent);
+  border-color: rgba(99, 179, 237, 0.4);
+}
+
+/* Analyse button */
+.btn-analyse {
+  background:    linear-gradient(135deg, var(--accent) 0%, #4299e1 100%);
+  border:        none;
+  border-radius: var(--radius-md);
+  color:         #0a0d14;
+  font-size:     1rem;
+  font-weight:   700;
+  letter-spacing: 0.02em;
+  padding:       0.875rem;
+  transition:    all var(--transition);
+  position:      relative;
+  overflow:      hidden;
+}
+
+.btn-analyse::after {
+  content:   '';
+  position:  absolute;
+  inset:     0;
+  background: rgba(255,255,255,0);
+  transition: background var(--transition);
+}
+
+.btn-analyse:hover::after { background: rgba(255,255,255,0.08); }
+
+.btn-analyse:hover {
+  transform:  translateY(-2px);
+  box-shadow: 0 8px 24px rgba(99, 179, 237, 0.35);
+}
+
+.btn-analyse:active { transform: translateY(0); }
+
+.btn-analyse:disabled {
+  opacity: 0.6;
+  transform: none;
+}
+
+/* -------------------------------------------------------------------------
+   7. Result Panel
+   ------------------------------------------------------------------------- */
+.result-panel {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 1.5rem;
+  animation: slide-up 0.4s ease;
+}
+
+/* -------------------------------------------------------------------------
+   8. Verdict Banner
+   ------------------------------------------------------------------------- */
+.verdict-banner {
+  display:       flex;
+  align-items:   center;
+  gap:           1.25rem;
+  padding:       1.25rem 1.5rem;
+  border-radius: var(--radius-lg);
+  border:        1px solid;
+  transition:    all var(--transition);
+}
+
+.verdict-banner.is-fake {
+  background:   var(--fake-bg);
+  border-color: var(--fake-border);
+}
+
+.verdict-banner.is-real {
+  background:   var(--real-bg);
+  border-color: var(--real-border);
+}
+
+.verdict-icon {
+  display:         flex;
+  align-items:     center;
+  justify-content: center;
+  width:           56px;
+  height:          56px;
+  border-radius:   50%;
+  flex-shrink:     0;
+  font-size:       1.5rem;
+}
+
+.is-fake .verdict-icon { background: rgba(252,129,129,0.15); color: var(--fake-color); }
+.is-real .verdict-icon { background: rgba(104,211,145,0.15); color: var(--real-color); }
+
+.verdict-label {
+  font-size:   1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.is-fake .verdict-label { color: var(--fake-color); }
+.is-real .verdict-label { color: var(--real-color); }
+
+.verdict-sub {
+  font-size: 0.82rem;
+  color:     var(--text-muted);
+  margin-top: 0.2rem;
+}
+
+/* -------------------------------------------------------------------------
+   9. Confidence Bar
+   ------------------------------------------------------------------------- */
+.confidence-section {}
+
+.conf-title {
+  font-size:   0.85rem;
+  font-weight: 600;
+  color:       var(--text-muted);
+}
+
+.conf-pct {
+  font-size:   1rem;
+  font-weight: 800;
+  color:       var(--accent);
+}
+
+.progress-track {
+  height:        8px;
+  border-radius: 999px;
+  background:    rgba(255,255,255,0.06);
+  overflow:      hidden;
+}
+
+.progress-fill {
+  height:        100%;
+  border-radius: 999px;
+  background:    linear-gradient(90deg, var(--accent), #4299e1);
+  transition:    width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* For fake results the bar turns red */
+.result-panel.is-fake .progress-fill {
+  background: linear-gradient(90deg, var(--fake-color), #f56565);
+}
+.result-panel.is-real .progress-fill {
+  background: linear-gradient(90deg, var(--real-color), #48bb78);
+}
+
+/* -------------------------------------------------------------------------
+   10. Probability Grid
+   ------------------------------------------------------------------------- */
+.prob-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.prob-card {
+  padding:       1rem;
+  border-radius: var(--radius-md);
+  border:        1px solid;
+  text-align:    center;
+}
+
+.prob-fake {
+  background:   var(--fake-bg);
+  border-color: var(--fake-border);
+}
+
+.prob-real {
+  background:   var(--real-bg);
+  border-color: var(--real-border);
+}
+
+.prob-icon {
+  font-size:   1.4rem;
+  margin-bottom: 0.4rem;
+}
+
+.prob-fake .prob-icon { color: var(--fake-color); }
+.prob-real .prob-icon { color: var(--real-color); }
+
+.prob-label {
+  font-size:  0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color:      var(--text-muted);
+  margin-bottom: 0.4rem;
+}
+
+.prob-value {
+  font-size:   1.4rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.prob-fake .prob-value { color: var(--fake-color); }
+.prob-real .prob-value { color: var(--real-color); }
+
+/* -------------------------------------------------------------------------
+   11. Metadata Row
+   ------------------------------------------------------------------------- */
+.meta-row {
+  display:    flex;
+  flex-wrap:  wrap;
+  gap:        1rem;
+  padding:    0.875rem 1rem;
+  background: rgba(255,255,255,0.03);
+  border:     1px solid rgba(255,255,255,0.05);
+  border-radius: var(--radius-md);
+}
+
+.meta-item {
+  display:     flex;
+  align-items: center;
+  gap:         0.4rem;
+  font-size:   0.78rem;
+  color:       var(--text-muted);
+}
+
+.disclaimer {
+  font-size:  0.75rem;
+  color:      var(--text-dim);
+  margin:     0;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* -------------------------------------------------------------------------
+   12. Error Panel
+   ------------------------------------------------------------------------- */
+.error-panel {
+  background:   rgba(252, 129, 129, 0.08);
+  border:       1px solid var(--fake-border);
+  border-radius: var(--radius-md);
+  padding:      0.875rem 1rem;
+  color:        var(--fake-color);
+  font-size:    0.875rem;
+  animation:    slide-up 0.3s ease;
+}
+
+/* -------------------------------------------------------------------------
+   13. How It Works Section
+   ------------------------------------------------------------------------- */
+.how-it-works { padding: 1rem 0; }
+
+.section-title {
+  font-size:   1.3rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color:       var(--text-primary);
+}
+
+.step-card {
+  background:   var(--bg-step);
+  border:       1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding:      1.25rem;
+  height:       100%;
+  transition:   transform var(--transition), border-color var(--transition);
+  text-align:   center;
+}
+
+.step-card:hover {
+  transform:    translateY(-4px);
+  border-color: rgba(99, 179, 237, 0.3);
+}
+
+.step-num {
+  font-size:   0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color:       var(--accent);
+  opacity:     0.6;
+  margin-bottom: 0.5rem;
+}
+
+.step-icon {
+  font-size:    1.6rem;
+  color:        var(--accent);
+  margin-bottom: 0.5rem;
+}
+
+.step-title {
+  font-size:   0.9rem;
+  font-weight: 700;
+  color:       var(--text-primary);
+  margin-bottom: 0.4rem;
+}
+
+.step-desc {
+  font-size:  0.75rem;
+  color:      var(--text-muted);
+  line-height: 1.5;
+}
+
+/* -------------------------------------------------------------------------
+   14. Footer
+   ------------------------------------------------------------------------- */
+.footer {
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 3rem;
+}
+
+/* -------------------------------------------------------------------------
+   15. Animations
+   ------------------------------------------------------------------------- */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-8px); }
+}
+
+@keyframes pulse-ring {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); }
+  50%       { box-shadow: 0 0 0 16px rgba(99, 179, 237, 0); }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* -------------------------------------------------------------------------
+   16. Responsive Tweaks
+   ------------------------------------------------------------------------- */
+@media (max-width: 576px) {
+  .hero { padding: 2.5rem 0 1.5rem; }
+  .hero-icon { width: 70px; height: 70px; }
+  .hero-icon i { font-size: 2rem; }
+  .prob-grid { grid-template-columns: 1fr; }
+  .meta-row { flex-direction: column; gap: 0.5rem; }
+  .analysis-breakdown { grid-template-columns: 1fr; }
+}
+
+/* -------------------------------------------------------------------------
+   17. Reason Card — Global Verification Verdict
+   ------------------------------------------------------------------------- */
+.reason-card {
+  background:    rgba(99, 179, 237, 0.06);
+  border:        1px solid rgba(99, 179, 237, 0.18);
+  border-radius: var(--radius-md);
+  padding:       1.1rem 1.25rem;
+  animation:     slide-up 0.45s ease;
+}
+
+.reason-card .reason-header {
+  display:      flex;
+  align-items:  center;
+  gap:          0.5rem;
+  font-size:    0.82rem;
+  font-weight:  700;
+  color:        var(--accent);
+  margin-bottom: 0.55rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.reason-card .reason-text {
+  font-size:    0.88rem;
+  color:        var(--text-primary);
+  line-height:  1.7;
+  margin:       0;
+}
+
+.result-panel.is-fake .reason-card {
+  background:    rgba(252, 129, 129, 0.06);
+  border-color:  rgba(252, 129, 129, 0.18);
+}
+
+.result-panel.is-fake .reason-header {
+  color: var(--fake-color);
+}
+
+.result-panel.is-real .reason-card {
+  background:    rgba(104, 211, 145, 0.06);
+  border-color:  rgba(104, 211, 145, 0.18);
+}
+
+.result-panel.is-real .reason-header {
+  color: var(--real-color);
+}
+
+/* -------------------------------------------------------------------------
+   18. Analysis Breakdown — ML vs Web vs Language scores
+   ------------------------------------------------------------------------- */
+.analysis-breakdown {
+  display:               grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap:                   0.75rem;
+}
+
+.analysis-card {
+  background:    var(--bg-step);
+  border:        1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding:       1rem;
+  text-align:    center;
+  transition:    transform var(--transition), border-color var(--transition);
+}
+
+.analysis-card:hover {
+  transform:    translateY(-2px);
+  border-color: rgba(99, 179, 237, 0.3);
+}
+
+.analysis-card .analysis-icon {
+  font-size:     1.3rem;
+  color:         var(--accent);
+  margin-bottom: 0.35rem;
+}
+
+.analysis-card .analysis-label {
+  font-size:      0.68rem;
+  font-weight:    600;
+  letter-spacing: 0.05em;
+  color:          var(--text-muted);
+  margin-bottom:  0.35rem;
+  text-transform: uppercase;
+}
+
+.analysis-card .analysis-value {
+  font-size:      1.35rem;
+  font-weight:    800;
+  letter-spacing: -0.02em;
+  color:          var(--text-primary);
+}
+
+/* -------------------------------------------------------------------------
+   19. Sources Panel — Web cross-reference results
+   ------------------------------------------------------------------------- */
+.sources-panel {
+  border:        1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow:      hidden;
+}
+
+.sources-header {
+  display:      flex;
+  align-items:  center;
+  justify-content: space-between;
+  padding:      0.85rem 1.1rem;
+  background:   rgba(255,255,255, 0.025);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sources-header-left {
+  display:     flex;
+  align-items: center;
+  gap:         0.5rem;
+  font-size:   0.82rem;
+  font-weight: 700;
+  color:       var(--text-primary);
+}
+
+.sources-count {
+  font-size:     0.7rem;
+  font-weight:   600;
+  color:         var(--accent);
+  background:    var(--accent-glow);
+  border:        1px solid rgba(99, 179, 237, 0.3);
+  border-radius: 999px;
+  padding:       0.15em 0.55em;
+}
+
+.source-list {
+  list-style: none;
+  margin:     0;
+  padding:    0;
+}
+
+.source-item {
+  display:       flex;
+  align-items:   center;
+  gap:           0.75rem;
+  padding:       0.75rem 1.1rem;
+  border-bottom: 1px solid rgba(255,255,255, 0.03);
+  transition:    background var(--transition);
+  animation:     slide-up 0.35s ease backwards;
+}
+
+.source-item:last-child { border-bottom: none; }
+
+.source-item:hover { background: rgba(255,255,255, 0.025); }
+
+/* Staggered entrance */
+.source-item:nth-child(1) { animation-delay: 0.05s; }
+.source-item:nth-child(2) { animation-delay: 0.10s; }
+.source-item:nth-child(3) { animation-delay: 0.15s; }
+.source-item:nth-child(4) { animation-delay: 0.20s; }
+.source-item:nth-child(5) { animation-delay: 0.25s; }
+.source-item:nth-child(6) { animation-delay: 0.30s; }
+
+.trust-badge {
+  display:         flex;
+  align-items:     center;
+  justify-content: center;
+  width:           28px;
+  height:          28px;
+  border-radius:   50%;
+  flex-shrink:     0;
+  font-size:       0.82rem;
+}
+
+.trust-badge.trusted {
+  background: rgba(104, 211, 145, 0.15);
+  color:      var(--real-color);
+}
+
+.trust-badge.untrusted {
+  background: rgba(255, 255, 255, 0.06);
+  color:      var(--text-dim);
+}
+
+.source-info {
+  flex:     1;
+  min-width: 0;
+}
+
+.source-name {
+  font-size:   0.78rem;
+  font-weight: 700;
+  color:       var(--text-primary);
+  display:     flex;
+  align-items: center;
+  gap:         0.4rem;
+}
+
+.source-name .tier-badge {
+  font-size:      0.58rem;
+  font-weight:    700;
+  letter-spacing: 0.05em;
+  padding:        0.1em 0.45em;
+  border-radius:  4px;
+  text-transform: uppercase;
+}
+
+.tier-badge.tier-1 { background: rgba(99,179,237,0.15); color: var(--accent); }
+.tier-badge.tier-2 { background: rgba(104,211,145,0.12); color: var(--real-color); }
+.tier-badge.tier-3 { background: rgba(255,255,255,0.08); color: var(--text-muted); }
+.tier-badge.tier-4 { background: rgba(236,201,75,0.15); color: #ecc94b; }
+
+.source-title {
+  font-size:     0.73rem;
+  color:         var(--text-muted);
+  white-space:   nowrap;
+  overflow:      hidden;
+  text-overflow: ellipsis;
+  margin-top:    0.15rem;
+}
+
+.source-link {
+  color:       var(--accent);
+  font-size:   0.75rem;
+  opacity:     0.6;
+  transition:  opacity var(--transition);
+  flex-shrink: 0;
+}
+
+.source-link:hover { opacity: 1; }
+
+.no-sources {
+  padding:    1.5rem 1.1rem;
+  text-align: center;
+  font-size:  0.82rem;
+  color:      var(--text-dim);
+}
+
+.no-sources i {
+  display:       block;
+  font-size:     1.4rem;
+  margin-bottom: 0.5rem;
+  opacity:       0.4;
+}

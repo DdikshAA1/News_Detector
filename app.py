@@ -23,7 +23,13 @@ from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
 
 import fact_checker
+from flask import Flask
 
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Fake News Detector Running"
 # --------------------------------------------------------------------------- #
 #  Setup                                                                        #
 # --------------------------------------------------------------------------- #

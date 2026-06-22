@@ -30,7 +30,8 @@ import fact_checker
 app = Flask(__name__)
 
 # --- Database Setup ---
-DATABASE = 'history.db'
+# Use /tmp for SQLite on Vercel (read-only filesystem)
+DATABASE = '/tmp/history.db' if os.environ.get('VERCEL') else 'history.db'
 
 def get_db():
     db = getattr(g, '_database', None)
@@ -65,21 +66,24 @@ init_db()
 # --------------------------------------------------------------------------- #
 
 # Check if NLTK data is present before calling download (optimizes boot speed)
+if os.environ.get('VERCEL'):
+    nltk.data.path.append('/tmp/nltk_data')
+    download_dir = '/tmp/nltk_data'
+else:
+    download_dir = None
+
 try:
     nltk.data.find("corpora/stopwords")
 except LookupError:
-    nltk.download("stopwords", quiet=True)
+    nltk.download("stopwords", download_dir=download_dir, quiet=True)
 
 try:
     nltk.data.find("tokenizers/punkt")
 except LookupError:
-    nltk.download("punkt", quiet=True)
+    nltk.download("punkt", download_dir=download_dir, quiet=True)
 
 STOP_WORDS = set(stopwords.words("english"))
 stemmer    = PorterStemmer()
-
-# Initialise Flask. '__name__' tells Flask where to find templates/ and static/
-app = Flask(__name__)
 
 # --------------------------------------------------------------------------- #
 #  Load the pre-trained model and vectorizer                                    #

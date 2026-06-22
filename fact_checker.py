@@ -273,10 +273,22 @@ def search_news(text: str, max_results: int = 12) -> tuple[list[dict], bool]:
                         publisher_title = item.get("publisher", {}).get("title")
                         source_name = publisher_title if publisher_title else (source_info["name"] if source_info else _extract_domain_name(url))
 
+                        title_str = item.get("title", "")
+                        body_str = item.get("description", "")
+                        combined_text = (title_str + " " + body_str).lower()
+                        
+                        # Relevance Filter: Ensure the returned news actually discusses the query concepts
+                        query_terms = set(w.lower() for w in query.split() if len(w) > 2)
+                        if query_terms:
+                            matches = sum(1 for term in query_terms if term in combined_text)
+                            # Must match at least 40% of the query keywords, or at least 2 keywords
+                            if (matches / len(query_terms) < 0.4) and matches < 2:
+                                continue # Skip irrelevant result
+
                         results.append({
-                            "title":       item.get("title", ""),
+                            "title":       title_str,
                             "url":         url,
-                            "body":        item.get("description", ""),
+                            "body":        body_str,
                             "source_name": source_name,
                             "source_tier": source_info["tier"] if source_info else 0,
                             "is_trusted":  source_info is not None,
@@ -481,8 +493,9 @@ def combined_analysis(
     # "chesk the entered news text in the all over news reports if it finds in previos or current data then give REAL ,if its irelevant then give FAKE with excat percentage in between 90-100 % predict well and give valid reason"
     
     if search_success:
-        # Determine if the claim is found in any news reports (increased sensitivity to avoid false FAKE predictions)
-        found_in_reports = (credibility["trusted_count"] > 0 or len(search_results) >= 1)
+        # Determine if the claim is found in any news reports 
+        # (Increased strictness: Must have trusted source OR multiple independent reports to be REAL)
+        found_in_reports = (credibility["trusted_count"] > 0 or len(search_results) >= 2)
 
         if found_in_reports:
             final_prediction = "REAL"

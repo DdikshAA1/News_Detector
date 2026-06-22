@@ -26,6 +26,7 @@ from urllib.parse import urlparse
 from datetime import datetime, timedelta
 
 import requests as http_requests
+from nltk.stem import PorterStemmer
 
 # Try importing GNews as fallback; if unavailable, skip it
 try:
@@ -41,14 +42,37 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------- #
-#  NewsAPI Configuration                                                        #
+#  NewsAPI Configuration & env loader                                           #
 # --------------------------------------------------------------------------- #
-#
-# Get your FREE API key from https://newsapi.org/register
-# Set it as environment variable NEWSAPI_KEY, or it will use the fallback.
+
+def _load_env_file():
+    """Manually parse .env file to load NEWSAPI_KEY locally."""
+    env_path = os.path.join(os.path.dirname(__file__), '.env')
+    if os.path.exists(env_path):
+        try:
+            with open(env_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#') or '=' not in line:
+                        continue
+                    key, val = line.split('=', 1)
+                    key = key.strip()
+                    val = val.strip().strip("'\"")
+                    os.environ[key] = val
+        except Exception as e:
+            logger.warning(f"Failed to read .env file manually: {e}")
+
+_load_env_file()
 
 NEWSAPI_KEY = os.environ.get("NEWSAPI_KEY", "5e6ecc9ed50143d19f2b83d7bc97d8df")
 NEWSAPI_EVERYTHING_URL = "https://newsapi.org/v2/everything"
+
+# Mask key for display
+masked_key = NEWSAPI_KEY[:6] + "..." + NEWSAPI_KEY[-4:] if NEWSAPI_KEY else "None"
+print(f"  [NEWSAPI] Loaded API Key: {masked_key}")
+
+stemmer = PorterStemmer()
+
 
 # --------------------------------------------------------------------------- #
 #  Trusted Sources Database                                                     #
@@ -147,6 +171,57 @@ def _identify_source(url: str) -> dict | None:
     except Exception:
         pass
     return None
+
+
+# --------------------------------------------------------------------------- #
+#  Helper: Determine relevance of article to query using PorterStemmer        #
+# --------------------------------------------------------------------------- #
+
+def is_relevant_article(query: str, title: str, description: str) -> bool:
+    """
+    Checks if a returned news article is relevant to the search query.
+    Extracts keywords, stems them, and requires at least 55% keyword overlap.
+    """
+    if not title:
+        return False
+        
+    title_clean = re.sub(r"[^\w\s'-]", " ", title).lower()
+    desc_clean = re.sub(r"[^\w\s'-]", " ", description or "").lower()
+    combined_words = (title_clean + " " + desc_clean).split()
+    
+    # Stem all words in the article
+    article_stemmed_words = {stemmer.stem(w) for w in combined_words}
+    
+    # Clean and stem the query keywords
+    query_clean = re.sub(r"[^\w\s'-]", " ", query).lower()
+    query_words = query_clean.split()
+    
+    stopwords_set = {
+        'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an',
+        'and', 'any', 'are', 'as', 'at', 'be', 'because', 'been', 'before',
+        'being', 'below', 'between', 'both', 'but', 'by', 'can', 'could',
+        'did', 'do', 'does', 'doing', 'down', 'during', 'each', 'few', 'for',
+        'from', 'further', 'had', 'has', 'have', 'having', 'he', 'her', 'here',
+        'hers', 'herself', 'him', 'himself', 'his', 'how', 'if', 'in', 'into',
+        'is', 'it', 'its', 'itself', 'just', 'me', 'more', 'most', 'my',
+        'myself', 'no', 'nor', 'not', 'now', 'of', 'off', 'on', 'once', 'only',
+        'or', 'other', 'our', 'ours', 'ourselves', 'out', 'over', 'own', 'same',
+        'she', 'should', 'so', 'some', 'such', 'than', 'that', 'the', 'their',
+        'theirs', 'them', 'themselves', 'then', 'there', 'these', 'they', 'this',
+        'those', 'through', 'to', 'too', 'under', 'until', 'up', 'very', 'was',
+        'we', 'were', 'what', 'when', 'where', 'which', 'while', 'who', 'whom',
+        'why', 'will', 'with', 'would', 'you', 'your', 'yours', 'yourself',
+    }
+    
+    query_keywords = [stemmer.stem(w) for w in query_words if w not in stopwords_set and len(w) > 2]
+    if not query_keywords:
+        return False
+        
+    # Count matches
+    matches = sum(1 for kw in query_keywords if kw in article_stemmed_words)
+    match_ratio = matches / len(query_keywords)
+    
+    return match_ratio >= 0.55
 
 
 # --------------------------------------------------------------------------- #
@@ -296,7 +371,7 @@ def _search_newsapi(query: str, max_results: int = 15) -> tuple[list[dict], bool
 #  Fallback Search: GNews RSS (free, unlimited, less precise)                   #
 # --------------------------------------------------------------------------- #
 
-def _search_gnews(query: str, max_results: int = 12) -> tuple[list[dict], bool]:
+def _search_gnews(query: str, max_results: int = 6) -> tuple[list[dict], bool]:
     """
     Search Google News RSS feed via the gnews library.
     Less precise than NewsAPI but unlimited and free.
@@ -359,24 +434,11 @@ def search_news(text: str) -> tuple[list[dict], bool]:
         logger.info(f"NewsAPI returned {len(results)} results for: {query}")
         return results, True
 
-    # Fallback to GNews
-    gnews_results, gnews_success = _search_gnews(query)
+    # Fallback to GNews (only if NewsAPI failed or returned 0 results)
+    gnews_results, gnews_success = _search_gnews(query, max_results=6)
     if gnews_success and gnews_results:
-        # Apply a light relevance filter for GNews (since it's fuzzy)
-        query_terms = set(w.lower() for w in query.split() if len(w) > 2)
-        filtered = []
-        for r in gnews_results:
-            combined = (r["title"] + " " + r["body"]).lower()
-            if query_terms:
-                matches = sum(1 for t in query_terms if t in combined)
-                # Require at least 30% keyword overlap OR 2+ matching keywords
-                if matches / len(query_terms) >= 0.3 or matches >= 2:
-                    filtered.append(r)
-            else:
-                filtered.append(r)
-
-        logger.info(f"GNews returned {len(filtered)} relevant results (from {len(gnews_results)} raw)")
-        return filtered, True
+        logger.info(f"GNews returned {len(gnews_results)} raw results for fallback")
+        return gnews_results, True
 
     # Both failed or returned nothing
     if success or gnews_success:
@@ -507,17 +569,33 @@ def combined_analysis(
 
     Logic:
       1. Search NewsAPI.org (or GNews fallback) for matching news articles.
-      2. If matching news reports found from trusted sources → REAL.
-      3. If multiple independent reports found → REAL.
-      4. If no matching news found → FAKE with 90-100% confidence.
-      5. Provides clear and valid prediction reasons.
+      2. Filter for strictly relevant articles based on keyword stem overlap (>= 55%).
+      3. If a fact-checking site (Tier 4) is found matching the claim → FAKE.
+      4. If matching news reports found from trusted mainstream sources (Tier 1/2/3) OR 2+ relevant results → REAL.
+      5. Otherwise → FAKE (uncorroborated).
+      6. Provides clear and valid prediction reasons.
     """
 
     # 1. Search the web
     search_results, search_success = search_news(text)
 
-    # 2. Analyze source credibility
-    credibility = analyze_source_credibility(search_results)
+    # Filter search results for actual relevance
+    relevant_results = []
+    has_mainstream = False
+    has_fact_checker = False
+
+    for r in search_results:
+        if is_relevant_article(text, r["title"], r["body"]):
+            relevant_results.append(r)
+            if r.get("is_trusted"):
+                tier = r.get("source_tier", 0)
+                if tier in (1, 2, 3):
+                    has_mainstream = True
+                elif tier == 4:
+                    has_fact_checker = True
+
+    # 2. Analyze source credibility of RELEVANT articles
+    credibility = analyze_source_credibility(relevant_results)
 
     # 3. Detect sensationalist language
     sensational_score, sensational_reasons = _detect_sensationalism(text)
@@ -527,31 +605,28 @@ def combined_analysis(
     web_score = credibility["credibility_score"] * 100
     lang_score = (1.0 - sensational_score) * 100
 
-    # 5. Core Decision Logic:
-    #    - If news found in global reports → REAL
-    #    - If not found / irrelevant → FAKE with 90-100% confidence
-
+    # 5. Core Decision Logic
     if search_success:
-        # Check if the claim was found in verified news reports
-        has_trusted = credibility["trusted_count"] > 0
-        has_multiple = len(search_results) >= 2
-
-        if has_trusted or has_multiple:
-            # ---- REAL NEWS ----
+        if has_fact_checker:
+            # Fact-checker matched this claim → FAKE
+            final_prediction = "FAKE"
+            final_confidence = 98.0
+            final_score = 2.0  # real prob 2%
+        elif has_mainstream or len(relevant_results) >= 1:
+            # Mainstream news or at least one relevant source → REAL
             final_prediction = "REAL"
 
             if credibility["trusted_count"] >= 1:
                 final_score = 85.0 + min(
-                    credibility["trusted_count"] * 4.0 + len(search_results) * 1.0,
+                    credibility["trusted_count"] * 4.0 + len(relevant_results) * 1.0,
                     13.0
                 )
             else:
-                final_score = 75.0 + min(len(search_results) * 2.0, 15.0)
+                final_score = 75.0 + min(len(relevant_results) * 2.0, 15.0)
 
             final_confidence = round(final_score, 1)
         else:
-            # ---- FAKE NEWS ----
-            # No matching reports found → FAKE with exact 90-100% confidence
+            # No credible matching reports found → FAKE
             final_prediction = "FAKE"
             h = int(hashlib.md5(text.encode('utf-8')).hexdigest(), 16)
             final_confidence = round(90.0 + (h % 90 + 10) / 10.0, 1)
@@ -567,16 +642,16 @@ def combined_analysis(
             final_confidence = ml_confidence
             final_score = ml_real_prob
 
-    # 6. Build reason
+    # 6. Build reason (use relevant_results here for reasoning)
     reason = _build_reason(
-        final_prediction, credibility, search_results,
+        final_prediction, credibility, relevant_results,
         sensational_score, sensational_reasons,
         ml_prediction, ml_confidence
     )
 
-    # 7. Build sources for frontend (max 6)
+    # 7. Build sources for frontend (max 6, relevant results only)
     sources = []
-    for r in search_results[:6]:
+    for r in relevant_results[:6]:
         sources.append({
             "title":      r["title"],
             "url":        r["url"],

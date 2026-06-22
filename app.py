@@ -19,6 +19,25 @@ import time
 import sqlite3
 from datetime import datetime
 
+# Helper to load .env manually
+def _load_env_file():
+    env_path = os.path.join(os.path.dirname(__file__), '.env')
+    if os.path.exists(env_path):
+        try:
+            with open(env_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#') or '=' not in line:
+                        continue
+                    key, val = line.split('=', 1)
+                    key = key.strip()
+                    val = val.strip().strip("'\"")
+                    os.environ[key] = val
+        except Exception as e:
+            print(f"Warning: Failed to load .env file manually: {e}")
+
+_load_env_file()
+
 import nltk
 from flask import Flask, jsonify, render_template, request, g
 from nltk.corpus import stopwords
@@ -134,6 +153,20 @@ def preprocess_text(text: str) -> str:
     return " ".join(words)
 
 
+def needs_translation(text: str) -> bool:
+    """Determine if a text is likely in Hindi/non-English and requires translation."""
+    # Check if text contains Devanagari characters (Hindi script)
+    if any('\u0900' <= char <= '\u097f' for char in text):
+        return True
+    
+    # Check percentage of standard ASCII characters.
+    # If the text is mostly ASCII/Latin characters, we can skip translation.
+    ascii_count = sum(1 for char in text if ord(char) < 128)
+    if len(text) > 0 and (ascii_count / len(text)) > 0.90:
+        return False
+        
+    return True
+
 # --------------------------------------------------------------------------- #
 #  Routes                                                                       #
 # --------------------------------------------------------------------------- #
@@ -179,11 +212,15 @@ def predict():
         return jsonify({"error": "Text is too short. Please enter more content."}), 400
 
     # Translate text to English for processing if it's not English
-    try:
-        news_text = GoogleTranslator(source='auto', target='en').translate(original_text)
-    except Exception as e:
-        print(f"Translation failed: {e}")
-        news_text = original_text # fallback to original
+    if needs_translation(original_text):
+        try:
+            print("  [TRANS] Input language detected as non-English/Hindi. Translating...")
+            news_text = GoogleTranslator(source='auto', target='en').translate(original_text)
+        except Exception as e:
+            print(f"Translation failed: {e}")
+            news_text = original_text # fallback to original
+    else:
+        news_text = original_text
 
     # --- 2. Preprocess ---
     cleaned = preprocess_text(news_text)

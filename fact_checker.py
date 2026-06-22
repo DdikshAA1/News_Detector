@@ -278,11 +278,25 @@ def search_news(text: str, max_results: int = 12) -> tuple[list[dict], bool]:
                         combined_text = (title_str + " " + body_str).lower()
                         
                         # Relevance Filter: Ensure the returned news actually discusses the query concepts
-                        query_terms = set(w.lower() for w in query.split() if len(w) > 2)
+                        query_terms_list = [w.lower() for w in query.split() if len(w) > 2]
+                        query_terms = set(query_terms_list)
                         if query_terms:
                             matches = sum(1 for term in query_terms if term in combined_text)
-                            # Must match at least 40% of the query keywords, or at least 2 keywords
-                            if (matches / len(query_terms) < 0.4) and matches < 2:
+                            ratio = matches / len(query_terms)
+                            
+                            # Check for at least one 2-word phrase overlap (to prevent random word scattering)
+                            has_phrase = False
+                            if len(query_terms_list) >= 2:
+                                for i in range(len(query_terms_list) - 1):
+                                    phrase = query_terms_list[i] + " " + query_terms_list[i+1]
+                                    if phrase in combined_text:
+                                        has_phrase = True
+                                        break
+                            else:
+                                has_phrase = True  # Single word queries automatically pass phrase check
+                                
+                            # Strict condition: must have high word overlap AND at least one phrase match
+                            if (ratio < 0.6 and matches < 4) or not has_phrase:
                                 continue # Skip irrelevant result
 
                         results.append({

@@ -52,6 +52,11 @@ FAKE_TEMPLATES = [
     "WAKE UP: {subject} Is {fake_verb} {object} Right in Front of Your Eyes",
     "Hollywood Elites Furious After {subject} {fake_verb} {object}",
     "Miracle Cure: How {subject} Used {object} to {action} the Impossible",
+    "Aliens have landed their {object} in central park and met {subject}",
+    "{subject} admits they are building a matrix to {action} {object}",
+    "This one trick by {subject} to {action} {object} will blow your mind",
+    "REVEALED: {subject} creates mind control devices in {object}",
+    "The end is near: {subject} triggers {object} to {action} humanity",
 ]
 
 FAKE_SUBJECTS = [
@@ -59,6 +64,8 @@ FAKE_SUBJECTS = [
     "mainstream media", "the president", "elites", "globalists",
     "secret societies", "tech giants", "the CDC", "the FBI",
     "world leaders", "billionaires", "the establishment", "shadow groups",
+    "the CIA", "Illuminati", "freemasons", "reptilians", "AI overlords",
+    "the World Economic Forum", "Bill Gates", "the royals",
 ]
 
 FAKE_VERBS = [
@@ -66,6 +73,7 @@ FAKE_VERBS = [
     "is suppressing", "has been poisoning", "is brainwashing",
     "has been lying about", "is orchestrating", "secretly banned",
     "has been funding", "is deliberately causing", "has been silencing",
+    "is tracking", "has been spying on", "is harvesting", "is replacing",
 ]
 
 REAL_TEMPLATES = [
@@ -94,6 +102,10 @@ REAL_TEMPLATES = [
     "Economists at {subject} project steady growth in {topic} sector",
     "{subject} releases annual transparency report on {topic}",
     "Officials confirm {subject} cooperation on {topic} investigation",
+    "{subject} to host international summit on {topic} next week",
+    "Supreme Court delivers ruling on {subject} handling of {topic}",
+    "Local governments partner with {subject} to combat {topic} issues",
+    "{subject} reports record numbers regarding {topic} in Q3",
 ]
 
 REAL_SUBJECTS = [
@@ -102,7 +114,9 @@ REAL_SUBJECTS = [
     "the United Nations", "the Supreme Court", "the Treasury Department",
     "the World Health Organization", "the European Union",
     "the Department of Justice", "federal officials", "economists",
-    "public health officials", "congressional leaders",
+    "public health officials", "congressional leaders", "the Pentagon",
+    "the UN Security Council", "global stock markets", "the FDA",
+    "Stanford researchers", "Oxford University", "the IMF",
 ]
 
 REAL_TOPICS = [
@@ -111,25 +125,29 @@ REAL_TOPICS = [
     "immigration", "education funding", "public health",
     "renewable energy", "defense spending", "tax reform",
     "social security", "election security", "housing policy",
+    "artificial intelligence", "space exploration", "inflation rates",
+    "public transit", "global warming", "national debt",
 ]
 
 OBJECTS = [
     "the economy", "public health", "free speech", "citizens",
     "the food supply", "the water supply", "elections", "children",
     "natural resources", "the internet", "the financial system",
+    "the middle class", "DNA", "vaccines", "microchips", "the weather",
 ]
 
 ACTIONS = [
     "destroy", "control", "manipulate", "poison", "censor",
-    "monitor", "eliminate", "exploit", "reprogram",
+    "monitor", "eliminate", "exploit", "reprogram", "track",
+    "erase", "brainwash", "bankrupt",
 ]
 
 EVENTS = [
     "last month's summit", "the recent vote", "mounting pressure",
     "the annual review", "stakeholder meetings", "public feedback",
-    "the latest audit", "bipartisan discussions",
+    "the latest audit", "bipartisan discussions", "global conferences",
+    "the fiscal year end", "quarterly earnings reports",
 ]
-
 
 def generate_fake_headline():
     """Create one fake news headline using templates."""
@@ -142,7 +160,6 @@ def generate_fake_headline():
         hide_verb=random.choice(["hides", "buries", "suppresses", "ignores"]),
     )
 
-
 def generate_real_headline():
     """Create one real news headline using templates."""
     template = random.choice(REAL_TEMPLATES)
@@ -153,7 +170,7 @@ def generate_real_headline():
     )
 
 
-def create_dataset(n_samples=2000, output_path="data/news_dataset.csv"):
+def create_dataset(n_samples=10000, output_path="data/news_dataset.csv"):
     """
     Build a balanced CSV dataset with equal fake and real samples.
 

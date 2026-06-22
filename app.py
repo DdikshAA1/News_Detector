@@ -16,20 +16,50 @@ import os
 import pickle
 import string
 import time
+import sqlite3
+from datetime import datetime
 
 import nltk
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, g
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
+from deep_translator import GoogleTranslator
 
 import fact_checker
-from flask import Flask
 
 app = Flask(__name__)
 
-@app.route("/")
-def home():
-    return "Fake News Detector Running"
+# --- Database Setup ---
+DATABASE = 'history.db'
+
+def get_db():
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._database = sqlite3.connect(DATABASE)
+        db.row_factory = sqlite3.Row
+    return db
+
+@app.teardown_appcontext
+def close_connection(exception):
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
+
+def init_db():
+    with app.app_context():
+        db = get_db()
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS predictions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                original_text TEXT NOT NULL,
+                prediction TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        db.commit()
+
+init_db()
 # --------------------------------------------------------------------------- #
 #  Setup                                                                        #
 # --------------------------------------------------------------------------- #
@@ -139,10 +169,17 @@ def predict():
         # Return a 400 Bad Request if no text was sent
         return jsonify({"error": "No text provided."}), 400
 
-    news_text = data["text"].strip()
+    original_text = data["text"].strip()
 
-    if len(news_text) < 10:
+    if len(original_text) < 10:
         return jsonify({"error": "Text is too short. Please enter more content."}), 400
+
+    # Translate text to English for processing if it's not English
+    try:
+        news_text = GoogleTranslator(source='auto', target='en').translate(original_text)
+    except Exception as e:
+        print(f"Translation failed: {e}")
+        news_text = original_text # fallback to original
 
     # --- 2. Preprocess ---
     cleaned = preprocess_text(news_text)
@@ -204,8 +241,32 @@ def predict():
     # Add word count to the result
     result["word_count"] = word_count
 
+    # Save to history
+    try:
+        db = get_db()
+        db.execute(
+            'INSERT INTO predictions (original_text, prediction, confidence) VALUES (?, ?, ?)',
+            (original_text, result["prediction"], result["confidence"])
+        )
+        db.commit()
+    except Exception as e:
+        print(f"Failed to save history: {e}")
+
     # --- 6. Return JSON ---
     return jsonify(result)
+
+@app.route("/history", methods=["GET"])
+def history():
+    """Return the most recent 10 predictions"""
+    db = get_db()
+    cur = db.execute('SELECT original_text, prediction, confidence, timestamp FROM predictions ORDER BY id DESC LIMIT 10')
+    entries = cur.fetchall()
+    return jsonify([{
+        "text": row["original_text"],
+        "prediction": row["prediction"],
+        "confidence": row["confidence"],
+        "timestamp": row["timestamp"]
+    } for row in entries])
 
 
 # --------------------------------------------------------------------------- #

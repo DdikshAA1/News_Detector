@@ -141,6 +141,7 @@ newsForm.addEventListener("submit", async (e) => {
 
     // --- Render result ---
     showResult(data, elapsed);
+    loadHistory();
 
   } catch (err) {
     // Network error (server down, no internet, etc.)
@@ -330,3 +331,59 @@ function showError(message) {
   errorPanel.classList.remove("d-none");
   errorPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
+
+/**
+ * loadHistory() — fetch history from backend and render it
+ */
+async function loadHistory() {
+  const historyList = document.getElementById("historyList");
+  if (!historyList) return;
+
+  try {
+    const response = await fetch("/history");
+    const data = await response.json();
+    
+    if (data.length === 0) {
+      historyList.innerHTML = `
+        <li class="no-sources">
+          <i class="bi bi-clock"></i>
+          No recent predictions found.
+        </li>`;
+      return;
+    }
+
+    historyList.innerHTML = "";
+    data.forEach(item => {
+      const isFake = item.prediction === "FAKE";
+      const iconClass = isFake ? "bi-x-octagon-fill" : "bi-check-circle-fill";
+      const trustClass = isFake ? "untrusted" : "trusted";
+      const colorStyle = isFake ? "color: var(--fake-color);" : "color: var(--real-color);";
+
+      const li = document.createElement("li");
+      li.className = "source-item";
+      li.innerHTML = `
+        <div class="trust-badge ${trustClass}">
+          <i class="bi ${iconClass}"></i>
+        </div>
+        <div class="source-info">
+          <div class="source-name" style="${colorStyle}">
+            ${item.prediction} <span class="tier-badge" style="color: var(--text-muted); background: rgba(255,255,255,0.1)">${item.confidence}%</span>
+          </div>
+          <div class="source-title" style="white-space: normal;">
+            ${escapeHtml(item.text)}
+          </div>
+          <div style="font-size: 0.65rem; color: var(--text-dim); margin-top: 4px;">
+            ${new Date(item.timestamp).toLocaleString()}
+          </div>
+        </div>
+      `;
+      historyList.appendChild(li);
+    });
+
+  } catch (err) {
+    console.error("Failed to load history:", err);
+  }
+}
+
+// Initial load of history when page loads
+loadHistory();

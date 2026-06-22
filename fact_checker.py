@@ -22,7 +22,7 @@ import re
 import logging
 from urllib.parse import urlparse
 
-from duckduckgo_search import DDGS
+from gnews import GNews
 
 # --------------------------------------------------------------------------- #
 #  Logging                                                                      #
@@ -251,66 +251,44 @@ def _detect_sensationalism(text: str) -> tuple[float, list[str]]:
 
 def search_news(text: str, max_results: int = 12) -> tuple[list[dict], bool]:
     """
-    Search DuckDuckGo using multiple query variations to guarantee maximum global news coverage.
+    Search Google News using multiple query variations to guarantee maximum global news coverage.
     """
     queries = _build_search_query(text)
     results = []
     success = False
 
     try:
-        with DDGS() as ddgs:
-            # Try each query variation until we get results or run out
-            for query in queries:
-                try:
-                    # Query general text index for speed & stability
-                    news_results = list(ddgs.text(query, max_results=max_results))
-                    if news_results:
-                        success = True
-                        for item in news_results:
-                            url = item.get("url", "")
-                            source_info = _identify_source(url)
+        google_news = GNews(max_results=max_results)
+        # Try each query variation until we get results or run out
+        for query in queries:
+            try:
+                # Query Google News for speed & stability
+                news_results = google_news.get_news(query)
+                if news_results:
+                    success = True
+                    for item in news_results:
+                        url = item.get("url", "")
+                        source_info = _identify_source(url)
+                        
+                        publisher_title = item.get("publisher", {}).get("title")
+                        source_name = publisher_title if publisher_title else (source_info["name"] if source_info else _extract_domain_name(url))
 
-                            results.append({
-                                "title":       item.get("title", ""),
-                                "url":         url,
-                                "body":        item.get("body", "") or item.get("snippet", ""),
-                                "source_name": source_info["name"] if source_info else _extract_domain_name(url),
-                                "source_tier": source_info["tier"] if source_info else 0,
-                                "is_trusted":  source_info is not None,
-                            })
-                        # Stop once we have successfully retrieved matching global news reports!
-                        break
-                except Exception as e:
-                    logger.warning(f"Query '{query}' failed: {e}")
+                        results.append({
+                            "title":       item.get("title", ""),
+                            "url":         url,
+                            "body":        item.get("description", ""),
+                            "source_name": source_name,
+                            "source_tier": source_info["tier"] if source_info else 0,
+                            "is_trusted":  source_info is not None,
+                        })
+                    # Stop once we have successfully retrieved matching global news reports!
+                    break
+            except Exception as e:
+                logger.warning(f"Query '{query}' failed: {e}")
                     
-            # If all text queries return nothing, try a quick news fallback with the best keyphrase
-            if not results and queries:
-                try:
-                    news_results = list(ddgs.news(queries[0], max_results=max_results))
-                    if news_results:
-                        success = True
-                        for item in news_results:
-                            url = item.get("url", "")
-                            source_info = _identify_source(url)
-
-                            results.append({
-                                "title":       item.get("title", ""),
-                                "url":         url,
-                                "body":        item.get("body", "") or item.get("snippet", ""),
-                                "source_name": source_info["name"] if source_info else _extract_domain_name(url),
-                                "source_tier": source_info["tier"] if source_info else 0,
-                                "is_trusted":  source_info is not None,
-                            })
-                except Exception:
-                    pass
-
-            # Mark success True if search executed successfully (even if 0 results found)
-            # success = False only if we couldn't connect or experienced complete API failure.
-            if not success:
-                success = True
 
     except Exception as e:
-        logger.warning(f"DuckDuckGo search failed: {e}")
+        logger.error(f"Google News API failed: {e}")
         success = False
 
     return results, success

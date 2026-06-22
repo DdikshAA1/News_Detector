@@ -317,6 +317,26 @@ Example:
         <!-- /col -->
       </div>
       <!-- /row -->
+
+      <!-- ============================================================== -->
+      <!--  HISTORY SECTION                                                -->
+      <!-- ============================================================== -->
+      <div class="row justify-content-center mt-5">
+        <div class="col-lg-8">
+          <h2 class="section-title text-center mb-4">
+            <i class="bi bi-clock-history me-2 text-accent"></i>Recent Predictions
+          </h2>
+          <div id="historyPanel" class="history-panel card-glass p-3">
+            <ul class="source-list" id="historyList">
+              <li class="no-sources">
+                <i class="bi bi-hourglass-split"></i>
+                Loading history...
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <!-- /history row -->
     </main>
 
     <!-- ================================================================== -->
@@ -324,12 +344,12 @@ Example:
     <!-- ================================================================== -->
     <footer class="footer text-center py-4">
       <div class="container">
-        <p class="mb-1 text-muted small">
+        <p class="mb-1 text-light small">
           Built with
           <i class="bi bi-heart-fill text-accent mx-1"></i>
           using Python · Flask · scikit-learn · NLTK · Bootstrap 5
         </p>
-        <p class="mb-0 text-muted small">
+        <p class="mb-0 text-white-50 small">
           A beginner-friendly AI/ML portfolio project
         </p>
       </div>

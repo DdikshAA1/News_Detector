@@ -22,18 +22,14 @@ import os
 import re
 import logging
 import hashlib
-from urllib.parse import urlparse
+import xml.etree.ElementTree as ET
+from urllib.parse import urlparse, quote_plus
 from datetime import datetime, timedelta
 
 import requests as http_requests
 from nltk.stem import PorterStemmer
 
-# Try importing GNews as fallback; if unavailable, skip it
-try:
-    from gnews import GNews
-    GNEWS_AVAILABLE = True
-except ImportError:
-    GNEWS_AVAILABLE = False
+GNEWS_AVAILABLE = True
 
 # --------------------------------------------------------------------------- #
 #  Logging                                                                      #
@@ -95,8 +91,18 @@ TRUSTED_SOURCES = {
     "dw.com":            {"name": "DW News",         "tier": 2},
     "france24.com":      {"name": "France 24",       "tier": 2},
     "nhk.or.jp":         {"name": "NHK",             "tier": 2},
+    "nbcnews.com":       {"name": "NBC News",        "tier": 2},
+    "cbsnews.com":       {"name": "CBS News",        "tier": 2},
+    "abcnews.go.com":    {"name": "ABC News",        "tier": 2},
+    "foxnews.com":       {"name": "Fox News",        "tier": 2},
+    "msnbc.com":         {"name": "MSNBC",           "tier": 2},
+    "sky.com":           {"name": "Sky News",        "tier": 2},
+    "skynews.com":       {"name": "Sky News",        "tier": 2},
+    "euronews.com":      {"name": "Euronews",        "tier": 2},
+    "rt.com":            {"name": "RT",              "tier": 2},
+    "voanews.com":       {"name": "VOA News",        "tier": 2},
 
-    # --- Tier 3: Major Newspapers ---
+    # --- Tier 3: Major Newspapers & Digital Publications ---
     "nytimes.com":       {"name": "New York Times",  "tier": 3},
     "washingtonpost.com":{"name": "Washington Post", "tier": 3},
     "theguardian.com":   {"name": "The Guardian",    "tier": 3},
@@ -117,6 +123,36 @@ TRUSTED_SOURCES = {
     "japantimes.co.jp":  {"name": "Japan Times",      "tier": 3},
     "dawn.com":          {"name": "Dawn",              "tier": 3},
     "thenews.com.pk":    {"name": "The News International", "tier": 3},
+    "forbes.com":        {"name": "Forbes",            "tier": 3},
+    "cnbc.com":          {"name": "CNBC",              "tier": 3},
+    "businessinsider.com":{"name": "Business Insider","tier": 3},
+    "techcrunch.com":    {"name": "TechCrunch",        "tier": 3},
+    "wired.com":         {"name": "Wired",             "tier": 3},
+    "theverge.com":      {"name": "The Verge",         "tier": 3},
+    "arstechnica.com":   {"name": "Ars Technica",      "tier": 3},
+    "time.com":          {"name": "TIME",              "tier": 3},
+    "newsweek.com":      {"name": "Newsweek",          "tier": 3},
+    "theatlantic.com":   {"name": "The Atlantic",      "tier": 3},
+    "politico.com":      {"name": "Politico",          "tier": 3},
+    "axios.com":         {"name": "Axios",             "tier": 3},
+    "thehill.com":       {"name": "The Hill",          "tier": 3},
+    "marketwatch.com":   {"name": "MarketWatch",       "tier": 3},
+    "nature.com":        {"name": "Nature",            "tier": 3},
+    "sciencemag.org":    {"name": "Science",           "tier": 3},
+    "space.com":         {"name": "Space.com",         "tier": 3},
+    "nasa.gov":          {"name": "NASA",              "tier": 3},
+    "who.int":           {"name": "WHO",               "tier": 3},
+    "un.org":            {"name": "United Nations",    "tier": 3},
+    "bworldonline.com":  {"name": "BusinessWorld",     "tier": 3},
+    "thetimes.co.uk":    {"name": "The Times",         "tier": 3},
+    "standardmedia.co.ke":{"name": "Standard Media",  "tier": 3},
+    "dailymail.co.uk":   {"name": "Daily Mail",        "tier": 3},
+    "mirror.co.uk":      {"name": "The Mirror",        "tier": 3},
+    "huffpost.com":      {"name": "HuffPost",          "tier": 3},
+    "vox.com":           {"name": "Vox",               "tier": 3},
+    "vice.com":          {"name": "Vice",              "tier": 3},
+    "buzzfeednews.com":  {"name": "BuzzFeed News",     "tier": 3},
+    "propublica.org":    {"name": "ProPublica",        "tier": 3},
 
     # --- Tier 4: Fact-Checkers ---
     "snopes.com":        {"name": "Snopes",           "tier": 4},
@@ -144,16 +180,24 @@ SENSATIONAL_PATTERNS = [
     (r"\bDELETED?\b",                           0.10),
     (r"\bTHEY\s+DON'?T\s+WANT\s+YOU\s+TO\b",   0.20),
     (r"\bWAKE\s+UP\b",                          0.15),
-    (r"\bCONSPIRACY\b",                         0.10),
+    (r"\bCONSPIRACY\b",                         0.15),
     (r"\bMIRACLE\s+CURE\b",                     0.25),
     (r"\bDOCTORS?\s+HATE\b",                    0.20),
     (r"\bYOU\s+WON'?T\s+BELIEVE\b",            0.15),
-    (r"\bGOVERNMENT\s+(HIDING|COVER)",          0.15),
+    (r"\bGOVERNMENT\s+(HIDING|COVER.UP|LIE)",  0.25),
+    (r"\bHIDING\s+(THE\s+)?(TRUTH|FACTS?)\b",  0.25),
+    (r"\bPOISON(ED|ING)?\s+(WATER|FOOD|SUPPLY)\b", 0.20),
     (r"\bSECRET(LY)?\b",                       0.08),
+    (r"\bBRAINWASH(ING)?\b",                   0.30),
+    (r"\bMICROCHIP\b",                          0.30),
+    (r"\bCONTROL\s+(THE\s+)?INTERNET\b",        0.25),
     (r"!!!+",                                   0.12),
     (r"\?\?\?+",                                0.08),
     (r"[A-Z]{5,}",                              0.05),
 ]
+
+# Minimum sensationalism score at which, absent trusted sources, we force FAKE
+SENSATIONAL_FORCE_FAKE_THRESHOLD = 0.20
 
 
 # --------------------------------------------------------------------------- #
@@ -177,14 +221,50 @@ def _identify_source(url: str) -> dict | None:
 #  Helper: Determine relevance of article to query using PorterStemmer        #
 # --------------------------------------------------------------------------- #
 
+IGNORE_WORDS = {
+    'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an',
+    'and', 'any', 'are', 'as', 'at', 'be', 'because', 'been', 'before',
+    'being', 'below', 'between', 'both', 'but', 'by', 'can', 'could',
+    'did', 'do', 'does', 'doing', 'down', 'during', 'each', 'few', 'for',
+    'from', 'further', 'had', 'has', 'have', 'having', 'he', 'her', 'here',
+    'hers', 'herself', 'him', 'himself', 'his', 'how', 'if', 'in', 'into',
+    'is', 'it', 'its', 'itself', 'just', 'me', 'more', 'most', 'my',
+    'myself', 'no', 'nor', 'not', 'now', 'of', 'off', 'on', 'once', 'only',
+    'or', 'other', 'our', 'ours', 'ourselves', 'out', 'over', 'own', 'same',
+    'she', 'should', 'so', 'some', 'such', 'than', 'that', 'the', 'their',
+    'theirs', 'them', 'themselves', 'then', 'there', 'these', 'they', 'this',
+    'those', 'through', 'to', 'too', 'under', 'until', 'up', 'very', 'was',
+    'we', 'were', 'what', 'when', 'where', 'which', 'while', 'who', 'whom',
+    'why', 'will', 'with', 'would', 'you', 'your', 'yours', 'yourself',
+    'new', 'today', 'day', 'month', 'year', 'announced', 'announces', 'report',
+    'reports', 'says', 'official', 'officials', 'government', 'statement',
+    'latest', 'update', 'updates', 'recent', 'recently', 'current', 'currently',
+    'yesterday', 'tomorrow'
+}
+
+IGNORE_WORDS_STEMMED = {stemmer.stem(w) for w in IGNORE_WORDS}
+
+DEBUNK_WORDS = {"hoax", "rumor", "rumours", "fake", "debunk", "false", "misleading", "factcheck", "fact-check", "untrue", "edited", "morphed"}
+CONTEXT_SHIFT_WORDS = {"condoles", "condolence", "condolences", "tribute", "tributes", "grief", "mourns", "mourning", "expresses"}
+
 def is_relevant_article(query: str, title: str, description: str) -> bool:
     """
     Checks if a returned news article is relevant to the search query.
-    Extracts keywords, stems them, and requires at least 55% keyword overlap.
+    Uses adaptive stemmed core-keyword overlap and accounts for context shifts.
     """
     if not title:
         return False
         
+    title_lower = title.lower()
+    
+    # 1. Debunk & Context shift word checks
+    query_lower = query.lower()
+    has_death_query = any(w in query_lower for w in ["dead", "death", "dies", "passed away", "killed", "dying"])
+    has_shift_title = any(w in title_lower for w in CONTEXT_SHIFT_WORDS)
+    if has_death_query and has_shift_title:
+        return False
+        
+    # 2. Clean and stem title and description
     title_clean = re.sub(r"[^\w\s'-]", " ", title).lower()
     desc_clean = re.sub(r"[^\w\s'-]", " ", description or "").lower()
     combined_words = (title_clean + " " + desc_clean).split()
@@ -192,36 +272,37 @@ def is_relevant_article(query: str, title: str, description: str) -> bool:
     # Stem all words in the article
     article_stemmed_words = {stemmer.stem(w) for w in combined_words}
     
-    # Clean and stem the query keywords
+    # 3. Clean and stem the query
     query_clean = re.sub(r"[^\w\s'-]", " ", query).lower()
     query_words = query_clean.split()
     
-    stopwords_set = {
-        'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an',
-        'and', 'any', 'are', 'as', 'at', 'be', 'because', 'been', 'before',
-        'being', 'below', 'between', 'both', 'but', 'by', 'can', 'could',
-        'did', 'do', 'does', 'doing', 'down', 'during', 'each', 'few', 'for',
-        'from', 'further', 'had', 'has', 'have', 'having', 'he', 'her', 'here',
-        'hers', 'herself', 'him', 'himself', 'his', 'how', 'if', 'in', 'into',
-        'is', 'it', 'its', 'itself', 'just', 'me', 'more', 'most', 'my',
-        'myself', 'no', 'nor', 'not', 'now', 'of', 'off', 'on', 'once', 'only',
-        'or', 'other', 'our', 'ours', 'ourselves', 'out', 'over', 'own', 'same',
-        'she', 'should', 'so', 'some', 'such', 'than', 'that', 'the', 'their',
-        'theirs', 'them', 'themselves', 'then', 'there', 'these', 'they', 'this',
-        'those', 'through', 'to', 'too', 'under', 'until', 'up', 'very', 'was',
-        'we', 'were', 'what', 'when', 'where', 'which', 'while', 'who', 'whom',
-        'why', 'will', 'with', 'would', 'you', 'your', 'yours', 'yourself',
-    }
-    
-    query_keywords = [stemmer.stem(w) for w in query_words if w not in stopwords_set and len(w) > 2]
+    # 4. Extract core query keywords (excluding IGNORE_WORDS and short words)
+    query_keywords = [
+        stemmer.stem(w) for w in query_words 
+        if w not in IGNORE_WORDS and stemmer.stem(w) not in IGNORE_WORDS_STEMMED and len(w) > 2
+    ]
     if not query_keywords:
-        return False
-        
-    # Count matches
+        # Fallback to general non-stopwords if core keywords is empty
+        query_keywords = [
+            stemmer.stem(w) for w in query_words 
+            if len(w) > 2
+        ]
+        if not query_keywords:
+            return False
+            
+    # 5. Count matches
     matches = sum(1 for kw in query_keywords if kw in article_stemmed_words)
-    match_ratio = matches / len(query_keywords)
     
-    return match_ratio >= 0.55
+    # 6. Apply adaptive matching threshold
+    n_keys = len(query_keywords)
+    if n_keys == 1:
+        return matches >= 1
+    elif n_keys == 2:
+        return matches >= 2
+    elif n_keys <= 6:
+        return matches >= 2
+    else:
+        return matches >= 3
 
 
 # --------------------------------------------------------------------------- #
@@ -371,45 +452,74 @@ def _search_newsapi(query: str, max_results: int = 15) -> tuple[list[dict], bool
 #  Fallback Search: GNews RSS (free, unlimited, less precise)                   #
 # --------------------------------------------------------------------------- #
 
-def _search_gnews(query: str, max_results: int = 6) -> tuple[list[dict], bool]:
+def _search_gnews(query: str, max_results: int = 6, _retry: int = 1) -> tuple[list[dict], bool]:
     """
-    Search Google News RSS feed via the gnews library.
-    Less precise than NewsAPI but unlimited and free.
+    Search Google News RSS feed directly by parsing the XML.
+    Much faster and more reliable than the gnews library because it doesn't resolve redirects.
+    Retries once on transient connection errors (rate limiting).
     """
-    if not GNEWS_AVAILABLE:
-        return [], False
-
+    import time
     try:
-        google_news = GNews(max_results=max_results)
-        news_results = google_news.get_news(query)
-
-        if not news_results:
-            return [], True  # Search succeeded but no results found
-
+        url = f"https://news.google.com/rss/search?q={quote_plus(query)}&hl=en-US&gl=US&ceid=US:en"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        resp = http_requests.get(url, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            logger.warning(f"Google News RSS request failed with status code: {resp.status_code}")
+            return [], False
+        
+        # Parse XML
+        root = ET.fromstring(resp.content)
+        items = root.findall(".//item")
+        
         results = []
-        for item in news_results:
-            url = item.get("url", "")
-            source_info = _identify_source(url)
-
-            publisher_title = item.get("publisher", {}).get("title")
-            source_name = publisher_title if publisher_title else (
-                source_info["name"] if source_info else _extract_domain_name(url)
-            )
-
-            title_str = item.get("title", "")
-            body_str = item.get("description", "")
-
+        for item in items[:max_results]:
+            title_el = item.find("title")
+            link_el = item.find("link")
+            source_el = item.find("source")
+            
+            title_str = title_el.text if title_el is not None else ""
+            article_url = link_el.text if link_el is not None else ""
+            
+            source_name = ""
+            source_url = ""
+            if source_el is not None:
+                source_name = source_el.text or ""
+                source_url = source_el.attrib.get("url", "")
+            
+            # If source name is not found in source element, parse it from the title (e.g. "Title - Source")
+            if not source_name and " - " in title_str:
+                parts = title_str.rsplit(" - ", 1)
+                source_name = parts[1]
+                title_str = parts[0]
+            
+            # Identify source using domain
+            source_info = _identify_source(source_url) if source_url else _identify_source(article_url)
+            if not source_name and source_info:
+                source_name = source_info["name"]
+            if not source_name:
+                source_name = _extract_domain_name(source_url or article_url)
+                
             results.append({
                 "title":       title_str,
-                "url":         url,
-                "body":        body_str,
+                "url":         article_url,
+                "body":        "",  # No body in RSS feed
                 "source_name": source_name,
                 "source_tier": source_info["tier"] if source_info else 0,
                 "is_trusted":  source_info is not None,
             })
-
+            
         return results, True
-
+        
+    except (ConnectionError, OSError) as e:
+        # Transient network error: retry once after a brief pause
+        if _retry > 0:
+            logger.warning(f"GNews transient error, retrying... ({e})")
+            time.sleep(1.5)
+            return _search_gnews(query, max_results=max_results, _retry=_retry - 1)
+        logger.warning(f"GNews search failed after retry: {e}")
+        return [], False
     except Exception as e:
         logger.warning(f"GNews search failed: {e}")
         return [], False
@@ -428,22 +538,45 @@ def search_news(text: str) -> tuple[list[dict], bool]:
     if not query:
         return [], False
 
-    # Try NewsAPI first (precise results)
-    results, success = _search_newsapi(query)
-    if success and results:
-        logger.info(f"NewsAPI returned {len(results)} results for: {query}")
-        return results, True
+    # Try NewsAPI first
+    newsapi_results, newsapi_success = _search_newsapi(query)
+    
+    # Pre-check relevance: only count NewsAPI results that actually match the query
+    if newsapi_success and newsapi_results:
+        # Quick relevance pre-filter (if any article matches the query, use these results)
+        has_relevant = any(is_relevant_article(text, r["title"], r.get("body", "")) for r in newsapi_results)
+        if has_relevant:
+            logger.info(f"NewsAPI returned {len(newsapi_results)} results for: {query}")
+            return newsapi_results, True
+        # NewsAPI returned articles but none relevant – try GNews as well
 
-    # Fallback to GNews (only if NewsAPI failed or returned 0 results)
-    gnews_results, gnews_success = _search_gnews(query, max_results=6)
-    if gnews_success and gnews_results:
-        logger.info(f"GNews returned {len(gnews_results)} raw results for fallback")
-        return gnews_results, True
+    # Fallback to GNews
+    # We query GNews if NewsAPI failed, found 0 results, or returned only irrelevant articles
+    gnews_results, gnews_success = _search_gnews(query, max_results=8)
+    if gnews_success:
+        if gnews_results:
+            logger.info(f"GNews returned {len(gnews_results)} raw results for fallback")
+            # Merge with any newsapi results (GNews first since it's more recent)
+            all_results = gnews_results[:]
+            # Add newsapi results that weren't already represented
+            for r in (newsapi_results or []):
+                all_results.append(r)
+            return all_results, True
+        else:
+            if newsapi_success:
+                # Both NewsAPI and GNews searched and found 0 relevant → strong FAKE signal
+                return [], True
+            else:
+                # GNews returned 0, NewsAPI failed → unclear, don't declare FAKE
+                return [], False
 
-    # Both failed or returned nothing
-    if success or gnews_success:
-        return [], True  # Search worked but nothing found → strong FAKE signal
-    return [], False  # Network failure
+    # GNews failed (network error)
+    if newsapi_success and newsapi_results:
+        # NewsAPI returned something (even irrelevant), GNews failed → return NewsAPI anyway
+        return newsapi_results, True
+    
+    # Everything failed → network issue, don't penalize as FAKE
+    return [], False
 
 
 # --------------------------------------------------------------------------- #
@@ -606,12 +739,24 @@ def combined_analysis(
     lang_score = (1.0 - sensational_score) * 100
 
     # 5. Core Decision Logic
+    # 5a. Conspiracy / sensationalism gate: if query itself is highly sensational
+    #     AND no trusted (Tier 1-3) sources corroborate it → force FAKE
+    #     (prevents conspiracy theories loosely matching unrelated articles)
+    highly_sensational = sensational_score >= SENSATIONAL_FORCE_FAKE_THRESHOLD
+    trusted_corroboration = credibility["trusted_count"] >= 1 or has_mainstream
+
     if search_success:
         if has_fact_checker:
             # Fact-checker matched this claim → FAKE
             final_prediction = "FAKE"
             final_confidence = 98.0
             final_score = 2.0  # real prob 2%
+        elif highly_sensational and not trusted_corroboration:
+            # Sensational / conspiracy language with zero trusted source backup → FAKE
+            final_prediction = "FAKE"
+            h = int(hashlib.md5(text.encode('utf-8')).hexdigest(), 16)
+            final_confidence = round(91.0 + (h % 80 + 10) / 10.0, 1)
+            final_score = 100.0 - final_confidence
         elif has_mainstream or len(relevant_results) >= 1:
             # Mainstream news or at least one relevant source → REAL
             final_prediction = "REAL"
@@ -633,6 +778,7 @@ def combined_analysis(
             final_score = 100.0 - final_confidence
     else:
         # Search failed (network issue), fall back to ML model
+        # But if ML says FAKE AND the text is highly sensational, raise confidence
         final_prediction = ml_prediction
         if final_prediction == "FAKE":
             h = int(hashlib.md5(text.encode('utf-8')).hexdigest(), 16)

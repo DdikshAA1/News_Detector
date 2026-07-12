@@ -22,11 +22,14 @@ import os
 import re
 import logging
 import hashlib
+import time
 import xml.etree.ElementTree as ET
 from urllib.parse import urlparse, quote_plus
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import requests as http_requests
+import functools
+import requests
 from nltk.stem import PorterStemmer
 
 GNEWS_AVAILABLE = True
@@ -60,12 +63,19 @@ def _load_env_file():
 
 _load_env_file()
 
-NEWSAPI_KEY = os.environ.get("NEWSAPI_KEY", "5e6ecc9ed50143d19f2b83d7bc97d8df")
+NEWSAPI_KEY = os.environ.get("NEWSAPI_KEY", "")
 NEWSAPI_EVERYTHING_URL = "https://newsapi.org/v2/everything"
+# Bing News API configuration
+BING_API_KEY = os.environ.get("BING_API_KEY", "")
+BING_NEWS_URL = "https://api.bing.microsoft.com/v7.0/news/search"
+
 
 # Mask key for display
-masked_key = NEWSAPI_KEY[:6] + "..." + NEWSAPI_KEY[-4:] if NEWSAPI_KEY else "None"
-print(f"  [NEWSAPI] Loaded API Key: {masked_key}")
+if NEWSAPI_KEY:
+    masked_key = NEWSAPI_KEY[:6] + "..." + NEWSAPI_KEY[-4:]
+    print(f"  [NEWSAPI] Loaded API Key: {masked_key}")
+else:
+    print("  [NEWSAPI] WARNING: No NEWSAPI_KEY found in .env — web verification will use GNews fallback only")
 
 stemmer = PorterStemmer()
 
@@ -247,62 +257,195 @@ IGNORE_WORDS_STEMMED = {stemmer.stem(w) for w in IGNORE_WORDS}
 DEBUNK_WORDS = {"hoax", "rumor", "rumours", "fake", "debunk", "false", "misleading", "factcheck", "fact-check", "untrue", "edited", "morphed"}
 CONTEXT_SHIFT_WORDS = {"condoles", "condolence", "condolences", "tribute", "tributes", "grief", "mourns", "mourning", "expresses"}
 
-def is_relevant_article(query: str, title: str, description: str) -> bool:
+def _extract_entities(text: str) -> list[str]:
+    """
+    Extract likely proper nouns / named entities from text.
+    Uses capitalization patterns since we don't have spaCy.
+    Returns lowercased entity tokens.
+    """
+    # Find sequences of capitalized words (proper nouns)
+    entities = []
+    words = text.split()
+    i = 0
+    while i < len(words):
+        w = words[i]
+        # Skip sentence-starting capitalization heuristic: skip first word
+        clean = re.sub(r"[^a-zA-Z0-9'-]", "", w)
+        if clean and clean[0].isupper() and clean.lower() not in IGNORE_WORDS and len(clean) > 1:
+            entity_parts = [clean.lower()]
+            # Extend with consecutive capitalized words
+            j = i + 1
+            while j < len(words):
+                nw = re.sub(r"[^a-zA-Z0-9'-]", "", words[j])
+                if nw and nw[0].isupper() and len(nw) > 1:
+                    entity_parts.append(nw.lower())
+                    j += 1
+                else:
+                    break
+            if len(entity_parts) >= 1:
+                entities.extend(entity_parts)
+            i = j
+        else:
+            i += 1
+    return entities
+
+
+def _extract_specific_claims(text: str) -> dict:
+    """
+    Extract specific, verifiable claims from text:
+    - Numbers / monetary amounts
+    - Key action verbs (buys, arrested, killed, dies, launches, etc.)
+    Returns a dict with claim components.
+    """
+    claims = {
+        "numbers": [],
+        "action_verbs": [],
+        "key_phrases": [],
+    }
+
+    # Extract numbers and monetary amounts
+    numbers = re.findall(r'\b\d[\d,]*(?:\.\d+)?\s*(?:billion|million|trillion|thousand|crore|lakh)?\b', text.lower())
+    claims["numbers"] = [n.strip() for n in numbers if len(n.strip()) > 0]
+
+    # Extract key action verbs that indicate specific events
+    action_patterns = [
+        r'\b(buys?|bought|purchase[ds]?|acquir(?:e[ds]?|ing))\b',
+        r'\b(arrest(?:ed|s|ing)?|detained|jailed|imprisoned)\b',
+        r'\b(die[ds]?|dead|death|killed|murder(?:ed)?|assassinat(?:ed|ion))\b',
+        r'\b(launch(?:ed|es|ing)?|announc(?:ed|es|ing)?|reveal(?:ed|s|ing)?)\b',
+        r'\b(resign(?:ed|s|ing)?|fire[ds]?|sack(?:ed)?|step(?:ped)?\s+down)\b',
+        r'\b(ban(?:ned|s)?|block(?:ed|s)?|sanction(?:ed|s)?)\b',
+        r'\b(win[s]?|won|defeat(?:ed|s)?|beat[s]?)\b',
+        r'\b(invad(?:e[ds]?|ing)|attack(?:ed|s|ing)?|bomb(?:ed|s|ing)?)\b',
+        r'\b(collaps(?:e[ds]?|ing)|crash(?:ed|es)?|bankrupt(?:cy)?)\b',
+        r'\b(elect(?:ed|ion)?|vote[ds]?|inaugurat(?:ed|es|ion))\b',
+    ]
+    text_lower = text.lower()
+    for pattern in action_patterns:
+        matches = re.findall(pattern, text_lower)
+        claims["action_verbs"].extend(matches)
+
+    return claims
+
+
+def _is_debunking_article(title: str, description: str) -> bool:
+    """Check if an article is debunking/fact-checking a claim (not confirming it)."""
+    combined = (title + " " + (description or "")).lower()
+    return any(w in combined for w in DEBUNK_WORDS)
+
+
+def is_relevant_article(query: str, title: str, description: str) -> tuple[bool, str]:
     """
     Checks if a returned news article is relevant to the search query.
-    Uses adaptive stemmed core-keyword overlap and accounts for context shifts.
+    Returns a tuple: (is_relevant, relevance_type)
+      - relevance_type: "confirming" if article confirms the claim,
+                        "debunking" if article is fact-checking/debunking,
+                        "none" if not relevant
+    Uses multi-layered matching:
+    1. Entity overlap (proper nouns must match)
+    2. Adaptive stemmed keyword overlap
+    3. Claim-specificity verification (numbers, action verbs)
+    4. Context shift detection
+    5. Action verb match requirement (stricter)
     """
     if not title:
-        return False
+        return False, "none"
         
     title_lower = title.lower()
+    query_lower = query.lower()
     
     # 1. Debunk & Context shift word checks
-    query_lower = query.lower()
     has_death_query = any(w in query_lower for w in ["dead", "death", "dies", "passed away", "killed", "dying"])
     has_shift_title = any(w in title_lower for w in CONTEXT_SHIFT_WORDS)
     if has_death_query and has_shift_title:
-        return False
+        return False, "none"
+    
+    # 2. Extract entities from query and check entity overlap
+    query_entities = _extract_entities(query)
+    if query_entities:
+        combined_text = (title + " " + (description or "")).lower()
+        entity_matches = sum(1 for e in query_entities if e in combined_text)
+        entity_ratio = entity_matches / len(query_entities) if query_entities else 0
         
-    # 2. Clean and stem title and description
+        # If query has named entities but NONE appear in the article, it's not relevant
+        if entity_ratio == 0 and len(query_entities) >= 2:
+            return False, "none"
+    
+    # 3. Extract specific claims and verify them
+    query_claims = _extract_specific_claims(query)
+    article_text = (title + " " + (description or "")).lower()
+    
+    # If query has specific numbers, check if any appear in the article
+    if query_claims["numbers"]:
+        has_number_match = any(n in article_text for n in query_claims["numbers"])
+        specific_numbers = [n for n in query_claims["numbers"] if not re.match(r'^20\d\d$', n.strip())]
+        if specific_numbers and not has_number_match:
+            return False, "none"
+    
+    # If query has specific action verbs, check if the article has similar actions
+    if query_claims["action_verbs"]:
+        action_stems = {stemmer.stem(v) for v in query_claims["action_verbs"]}
+        article_words = re.sub(r"[^\w\s'-]", " ", article_text).split()
+        article_stems = {stemmer.stem(w) for w in article_words}
+        action_match = bool(action_stems & article_stems)
+    else:
+        action_match = True  # No specific actions to check
+        
+    # 4. Clean and stem title and description
     title_clean = re.sub(r"[^\w\s'-]", " ", title).lower()
     desc_clean = re.sub(r"[^\w\s'-]", " ", description or "").lower()
     combined_words = (title_clean + " " + desc_clean).split()
     
-    # Stem all words in the article
     article_stemmed_words = {stemmer.stem(w) for w in combined_words}
     
-    # 3. Clean and stem the query
+    # 5. Clean and stem the query
     query_clean = re.sub(r"[^\w\s'-]", " ", query).lower()
     query_words = query_clean.split()
     
-    # 4. Extract core query keywords (excluding IGNORE_WORDS and short words)
+    # 6. Extract core query keywords
     query_keywords = [
         stemmer.stem(w) for w in query_words 
         if w not in IGNORE_WORDS and stemmer.stem(w) not in IGNORE_WORDS_STEMMED and len(w) > 2
     ]
     if not query_keywords:
-        # Fallback to general non-stopwords if core keywords is empty
         query_keywords = [
             stemmer.stem(w) for w in query_words 
             if len(w) > 2
         ]
         if not query_keywords:
-            return False
+            return False, "none"
             
-    # 5. Count matches
+    # 7. Count matches
     matches = sum(1 for kw in query_keywords if kw in article_stemmed_words)
     
-    # 6. Apply adaptive matching threshold
+    # 8. Apply STRICTER adaptive matching threshold (raised thresholds)
     n_keys = len(query_keywords)
     if n_keys == 1:
-        return matches >= 1
+        keyword_pass = matches >= 1
     elif n_keys == 2:
-        return matches >= 2
+        keyword_pass = matches >= 2
+    elif n_keys <= 4:
+        keyword_pass = matches >= 2 and (matches / n_keys) >= 0.55
     elif n_keys <= 6:
-        return matches >= 2
+        keyword_pass = matches >= 3 and (matches / n_keys) >= 0.50
     else:
-        return matches >= 3
+        keyword_pass = matches >= 4 and (matches / n_keys) >= 0.40
+    
+    # 9. Combined decision: keywords must pass
+    if not keyword_pass:
+        return False, "none"
+    
+    # 10. If we had specific action verbs but none matched, the article is
+    #     about the same entity but a DIFFERENT event → NOT truly relevant
+    if not action_match and n_keys >= 3:
+        if (matches / n_keys) < 0.7:
+            return False, "none"
+    
+    # 11. Determine if this is a debunking article or a confirming one
+    is_debunk = _is_debunking_article(title, description or "")
+    relevance_type = "debunking" if is_debunk else "confirming"
+    
+    return True, relevance_type
 
 
 # --------------------------------------------------------------------------- #
@@ -414,7 +557,7 @@ def _search_newsapi(query: str, max_results: int = 15) -> tuple[list[dict], bool
             "apiKey": NEWSAPI_KEY,
         }
 
-        resp = http_requests.get(NEWSAPI_EVERYTHING_URL, params=params, timeout=10)
+        resp = requests.get(NEWSAPI_EVERYTHING_URL, params=params, timeout=10)
         data = resp.json()
 
         if resp.status_code != 200 or data.get("status") != "ok":
@@ -439,6 +582,7 @@ def _search_newsapi(query: str, max_results: int = 15) -> tuple[list[dict], bool
                 "source_name": source_name,
                 "source_tier": source_info["tier"] if source_info else 0,
                 "is_trusted":  source_info is not None,
+                "api_source":  "newsapi",
             })
 
         return results, True
@@ -452,19 +596,70 @@ def _search_newsapi(query: str, max_results: int = 15) -> tuple[list[dict], bool
 #  Fallback Search: GNews RSS (free, unlimited, less precise)                   #
 # --------------------------------------------------------------------------- #
 
-def _search_gnews(query: str, max_results: int = 6, _retry: int = 1) -> tuple[list[dict], bool]:
+def _search_bing(query: str, max_results: int = 10) -> tuple[list[dict], bool]:
+    """
+    Search Bing News API for matching articles.
+    Returns (results_list, success_bool).
+    Requires BING_API_KEY in .env.
+    """
+    if not BING_API_KEY:
+        return [], False
+
+    try:
+        headers = {"Ocp-Apim-Subscription-Key": BING_API_KEY}
+        params = {
+            "q": query,
+            "count": max_results,
+            "mkt": "en-US",
+            "freshness": "Month",
+            "sortBy": "Relevance",
+        }
+        resp = requests.get(BING_NEWS_URL, headers=headers, params=params, timeout=10)
+        if resp.status_code != 200:
+            logger.warning(f"Bing News API error: {resp.status_code}")
+            return [], False
+
+        data = resp.json()
+        articles = data.get("value", [])
+        results = []
+
+        for article in articles:
+            url = article.get("url", "")
+            source_info = _identify_source(url)
+            provider = article.get("provider", [{}])
+            source_name = provider[0].get("name", "") if provider else ""
+            if not source_name:
+                source_name = source_info["name"] if source_info else _extract_domain_name(url)
+
+            results.append({
+                "title":       article.get("name", ""),
+                "url":         url,
+                "body":        article.get("description", ""),
+                "source_name": source_name,
+                "source_tier": source_info["tier"] if source_info else 0,
+                "is_trusted":  source_info is not None,
+                "api_source":  "bing",
+            })
+
+        return results, True
+
+    except Exception as e:
+        logger.error(f"Bing News API request failed: {e}")
+        return [], False
+
+
+def _search_gnews(query: str, max_results: int = 8, _retry: int = 1) -> tuple[list[dict], bool]:
     """
     Search Google News RSS feed directly by parsing the XML.
     Much faster and more reliable than the gnews library because it doesn't resolve redirects.
     Retries once on transient connection errors (rate limiting).
     """
-    import time
     try:
         url = f"https://news.google.com/rss/search?q={quote_plus(query)}&hl=en-US&gl=US&ceid=US:en"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
-        resp = http_requests.get(url, headers=headers, timeout=10)
+        resp = requests.get(url, headers=headers, timeout=10)
         if resp.status_code != 200:
             logger.warning(f"Google News RSS request failed with status code: {resp.status_code}")
             return [], False
@@ -508,6 +703,7 @@ def _search_gnews(query: str, max_results: int = 6, _retry: int = 1) -> tuple[li
                 "source_name": source_name,
                 "source_tier": source_info["tier"] if source_info else 0,
                 "is_trusted":  source_info is not None,
+                "api_source":  "gnews",
             })
             
         return results, True
@@ -526,57 +722,94 @@ def _search_gnews(query: str, max_results: int = 6, _retry: int = 1) -> tuple[li
 
 
 # --------------------------------------------------------------------------- #
-#  Combined Search: NewsAPI first, GNews fallback                               #
+#  Combined Search: ALL sources in parallel, merge & deduplicate                #
 # --------------------------------------------------------------------------- #
+
+def _deduplicate_results(results: list[dict]) -> list[dict]:
+    """
+    Remove duplicate articles based on URL.
+    Keeps the first occurrence (higher-priority source).
+    """
+    seen_urls = set()
+    unique = []
+    for r in results:
+        url = r.get("url", "").rstrip("/").lower()
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            unique.append(r)
+        elif not url:
+            unique.append(r)  # keep results without URLs
+    return unique
+
 
 def search_news(text: str) -> tuple[list[dict], bool]:
     """
-    Search for the news using NewsAPI (primary) with GNews fallback.
+    Search for news across ALL available sources (NewsAPI, Bing, GNews)
+    in parallel, merge and deduplicate results.
     Returns (results, success).
     """
     query = _build_search_query(text)
     if not query:
         return [], False
 
-    # Try NewsAPI first
-    newsapi_results, newsapi_success = _search_newsapi(query)
-    
-    # Pre-check relevance: only count NewsAPI results that actually match the query
-    if newsapi_success and newsapi_results:
-        # Quick relevance pre-filter (if any article matches the query, use these results)
-        has_relevant = any(is_relevant_article(text, r["title"], r.get("body", "")) for r in newsapi_results)
-        if has_relevant:
-            logger.info(f"NewsAPI returned {len(newsapi_results)} results for: {query}")
-            return newsapi_results, True
-        # NewsAPI returned articles but none relevant – try GNews as well
+    logger.info(f"Searching ALL sources for: {query}")
+    print(f"  [SEARCH] Query: {query}")
 
-    # Fallback to GNews
-    # We query GNews if NewsAPI failed, found 0 results, or returned only irrelevant articles
-    gnews_results, gnews_success = _search_gnews(query, max_results=8)
-    if gnews_success:
-        if gnews_results:
-            logger.info(f"GNews returned {len(gnews_results)} raw results for fallback")
-            # Merge with any newsapi results (GNews first since it's more recent)
-            all_results = gnews_results[:]
-            # Add newsapi results that weren't already represented
-            for r in (newsapi_results or []):
-                all_results.append(r)
+    # Launch ALL searches in parallel using ThreadPoolExecutor
+    all_results = []
+    any_success = False
+    source_stats = {}  # Track how many results came from each source
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {}
+
+        # Submit NewsAPI search
+        if NEWSAPI_KEY:
+            futures[executor.submit(_search_newsapi, query, 15)] = "NewsAPI"
+
+        # Submit Bing search
+        if BING_API_KEY:
+            futures[executor.submit(_search_bing, query, 10)] = "Bing"
+
+        # Submit GNews search (always available, no API key needed)
+        futures[executor.submit(_search_gnews, query, 10)] = "GNews"
+
+        # Collect results as they complete
+        for future in as_completed(futures, timeout=15):
+            source_name = futures[future]
+            try:
+                results, success = future.result()
+                if success:
+                    any_success = True
+                    source_stats[source_name] = len(results)
+                    all_results.extend(results)
+                    logger.info(f"{source_name} returned {len(results)} results")
+                    print(f"  [SEARCH] {source_name}: {len(results)} results")
+                else:
+                    source_stats[source_name] = 0
+                    logger.info(f"{source_name}: no results or failed")
+                    print(f"  [SEARCH] {source_name}: failed or 0 results")
+            except Exception as e:
+                source_stats[source_name] = 0
+                logger.warning(f"{source_name} search error: {e}")
+                print(f"  [SEARCH] {source_name}: error - {e}")
+
+    # Deduplicate by URL
+    all_results = _deduplicate_results(all_results)
+
+    total = len(all_results)
+    print(f"  [SEARCH] Total unique results from all sources: {total}")
+    logger.info(f"Total unique results: {total} (sources: {source_stats})")
+
+    if any_success:
+        if all_results:
             return all_results, True
         else:
-            if newsapi_success:
-                # Both NewsAPI and GNews searched and found 0 relevant → strong FAKE signal
-                return [], True
-            else:
-                # GNews returned 0, NewsAPI failed → unclear, don't declare FAKE
-                return [], False
-
-    # GNews failed (network error)
-    if newsapi_success and newsapi_results:
-        # NewsAPI returned something (even irrelevant), GNews failed → return NewsAPI anyway
-        return newsapi_results, True
-    
-    # Everything failed → network issue, don't penalize as FAKE
-    return [], False
+            # All sources searched but found nothing → strong FAKE signal
+            return [], True
+    else:
+        # All sources failed → network issue, don't penalize as FAKE
+        return [], False
 
 
 # --------------------------------------------------------------------------- #
@@ -700,95 +933,195 @@ def combined_analysis(
     """
     Run the full global verification pipeline.
 
-    Logic:
-      1. Search NewsAPI.org (or GNews fallback) for matching news articles.
-      2. Filter for strictly relevant articles based on keyword stem overlap (>= 55%).
-      3. If a fact-checking site (Tier 4) is found matching the claim → FAKE.
-      4. If matching news reports found from trusted mainstream sources (Tier 1/2/3) OR 2+ relevant results → REAL.
-      5. Otherwise → FAKE (uncorroborated).
-      6. Provides clear and valid prediction reasons.
+    Improved Logic (ML-first approach):
+      1. Search the web for matching news articles.
+      2. Filter for strictly relevant articles, distinguishing confirming vs debunking.
+      3. ML model is the primary signal; web evidence can reinforce or override
+         ONLY with strong, specific evidence.
+      4. Web can override ML FAKE only if there are confirming trusted sources.
+      5. Web can override ML REAL only if debunking evidence is found.
+      6. Sensationalist language is a strong FAKE signal.
     """
 
     # 1. Search the web
     search_results, search_success = search_news(text)
 
-    # Filter search results for actual relevance
+    # Filter search results for actual relevance + classify as confirming/debunking
     relevant_results = []
-    has_mainstream = False
+    confirming_results = []    # Articles that confirm the claim
+    debunking_results = []     # Articles that debunk/fact-check the claim
+    has_mainstream_confirming = False
     has_fact_checker = False
 
     for r in search_results:
-        if is_relevant_article(text, r["title"], r["body"]):
+        is_relevant, rel_type = is_relevant_article(text, r["title"], r["body"])
+        if is_relevant:
+            r["_relevance_type"] = rel_type
             relevant_results.append(r)
-            if r.get("is_trusted"):
-                tier = r.get("source_tier", 0)
-                if tier in (1, 2, 3):
-                    has_mainstream = True
-                elif tier == 4:
-                    has_fact_checker = True
 
-    # 2. Analyze source credibility of RELEVANT articles
-    credibility = analyze_source_credibility(relevant_results)
+            if rel_type == "debunking":
+                debunking_results.append(r)
+                # Fact-checker sources debunking → strong FAKE signal
+                if r.get("is_trusted") and r.get("source_tier") == 4:
+                    has_fact_checker = True
+            else:
+                confirming_results.append(r)
+                if r.get("is_trusted"):
+                    tier = r.get("source_tier", 0)
+                    if tier in (1, 2, 3):
+                        has_mainstream_confirming = True
+                    elif tier == 4:
+                        has_fact_checker = True
+
+    # 2. Analyze source credibility of CONFIRMING articles only
+    credibility = analyze_source_credibility(confirming_results)
 
     # 3. Detect sensationalist language
     sensational_score, sensational_reasons = _detect_sensationalism(text)
 
-    # 4. Component scores
+    # 4. Component scores — ML gets primary weight
     ml_score = ml_real_prob
     web_score = credibility["credibility_score"] * 100
     lang_score = (1.0 - sensational_score) * 100
 
-    # 5. Core Decision Logic
-    # 5a. Conspiracy / sensationalism gate: if query itself is highly sensational
-    #     AND no trusted (Tier 1-3) sources corroborate it → force FAKE
-    #     (prevents conspiracy theories loosely matching unrelated articles)
+    # 5. Core Decision Logic — ML-first approach
+    #
+    # Key principle: ML model is well-trained and accurate.
+    # Web evidence should REINFORCE ML, not blindly override it.
+    # Web can override ML only with STRONG, SPECIFIC evidence.
+
     highly_sensational = sensational_score >= SENSATIONAL_FORCE_FAKE_THRESHOLD
-    trusted_corroboration = credibility["trusted_count"] >= 1 or has_mainstream
+    ml_says_fake_strongly = ml_prediction == "FAKE" and ml_confidence >= 70.0
+    ml_says_real_strongly = ml_prediction == "REAL" and ml_confidence >= 70.0
 
     if search_success:
-        if has_fact_checker:
-            # Fact-checker matched this claim → FAKE
+        # ---- FAKE signals (checked first) ----
+
+        if has_fact_checker or len(debunking_results) >= 1:
+            # Fact-checker or debunking article matched this claim → FAKE
             final_prediction = "FAKE"
-            final_confidence = 98.0
-            final_score = 2.0  # real prob 2%
-        elif highly_sensational and not trusted_corroboration:
-            # Sensational / conspiracy language with zero trusted source backup → FAKE
+            final_confidence = 96.0 if has_fact_checker else 90.0
+            final_score = 100.0 - final_confidence
+
+        elif highly_sensational and not has_mainstream_confirming:
+            # Sensational language with zero trusted confirmation → FAKE
             final_prediction = "FAKE"
             h = int(hashlib.md5(text.encode('utf-8')).hexdigest(), 16)
             final_confidence = round(91.0 + (h % 80 + 10) / 10.0, 1)
             final_score = 100.0 - final_confidence
-        elif has_mainstream or len(relevant_results) >= 1:
-            # Mainstream news or at least one relevant source → REAL
-            final_prediction = "REAL"
 
-            if credibility["trusted_count"] >= 1:
-                final_score = 85.0 + min(
-                    credibility["trusted_count"] * 4.0 + len(relevant_results) * 1.0,
-                    13.0
+        elif ml_says_fake_strongly and not has_mainstream_confirming:
+            # ML says FAKE with high confidence AND no trusted source confirms it
+            # → Trust ML regardless of how many non-trusted results exist
+            final_prediction = "FAKE"
+            # Boost confidence if sensational language also present
+            sens_boost = min(sensational_score * 10.0, 5.0)
+            h = int(hashlib.md5(text.encode('utf-8')).hexdigest(), 16)
+            base_conf = ml_confidence + sens_boost
+            final_confidence = round(min(base_conf, 98.0), 1)
+            final_score = 100.0 - final_confidence
+
+        # ---- REAL signals ----
+
+        elif has_mainstream_confirming and len(confirming_results) >= 2:
+            # Strong evidence: trusted mainstream sources + multiple confirms → REAL
+            # But only override ML FAKE if web evidence is truly strong
+            if ml_says_fake_strongly:
+                # ML says FAKE but web has strong confirmation → web wins but lower confidence
+                final_prediction = "REAL"
+                final_score = 75.0 + min(
+                    credibility["trusted_count"] * 3.0 + len(confirming_results) * 1.5,
+                    15.0
                 )
+                final_confidence = round(final_score, 1)
             else:
-                final_score = 75.0 + min(len(relevant_results) * 2.0, 15.0)
+                final_prediction = "REAL"
+                final_score = 88.0 + min(
+                    credibility["trusted_count"] * 3.0 + len(confirming_results) * 1.5,
+                    11.0
+                )
+                final_confidence = round(final_score, 1)
 
-            final_confidence = round(final_score, 1)
-        else:
-            # No credible matching reports found → FAKE
+        elif has_mainstream_confirming and len(confirming_results) >= 1:
+            # Moderate evidence: trusted source with one confirming match
+            if ml_says_fake_strongly:
+                # ML says FAKE, only 1 trusted confirmation → ML wins
+                final_prediction = "FAKE"
+                h = int(hashlib.md5(text.encode('utf-8')).hexdigest(), 16)
+                final_confidence = round(max(ml_confidence - 5.0, 70.0), 1)
+                final_score = 100.0 - final_confidence
+            else:
+                final_prediction = "REAL"
+                final_score = 82.0 + min(
+                    credibility["trusted_count"] * 3.0 + len(confirming_results) * 2.0,
+                    15.0
+                )
+                final_confidence = round(final_score, 1)
+
+        elif len(confirming_results) >= 2 and not ml_says_fake_strongly:
+            # Multiple confirms from non-trusted sources, ML does NOT say FAKE → lean REAL
+            final_prediction = "REAL" if ml_prediction == "REAL" else ml_prediction
+            if final_prediction == "REAL":
+                final_score = 70.0 + min(len(confirming_results) * 3.0, 18.0)
+                final_confidence = round(final_score, 1)
+            else:
+                final_confidence = ml_confidence
+                final_score = 100.0 - final_confidence
+
+        elif len(confirming_results) >= 2 and ml_says_fake_strongly:
+            # Multiple confirms from non-trusted sources BUT ML says FAKE strongly
+            # → Trust ML — non-trusted sources don't override strong ML FAKE
             final_prediction = "FAKE"
             h = int(hashlib.md5(text.encode('utf-8')).hexdigest(), 16)
-            final_confidence = round(90.0 + (h % 90 + 10) / 10.0, 1)
+            final_confidence = round(max(ml_confidence - 5.0, 72.0), 1)
             final_score = 100.0 - final_confidence
+
+        elif len(confirming_results) == 1:
+            # Single confirm → weak web signal, trust ML
+            final_prediction = ml_prediction
+            final_confidence = ml_confidence
+            if final_prediction == "FAKE":
+                h = int(hashlib.md5(text.encode('utf-8')).hexdigest(), 16)
+                final_confidence = round(max(ml_confidence, 70.0), 1)
+                final_score = 100.0 - final_confidence
+            else:
+                final_score = min(65.0 + ml_confidence * 0.15, 78.0)
+                final_confidence = round(final_score, 1)
+
+        else:
+            # No relevant results at all despite successful search
+            # → Trust ML, but give a slight nudge toward FAKE for uncorroborated claims
+            if ml_prediction == "REAL" and ml_confidence >= 65.0:
+                # ML says REAL with decent confidence → trust it
+                final_prediction = "REAL"
+                final_confidence = max(ml_confidence - 10.0, 55.0)
+                final_score = final_confidence
+            elif ml_prediction == "FAKE":
+                # ML says FAKE + no web corroboration → definitely FAKE
+                final_prediction = "FAKE"
+                h = int(hashlib.md5(text.encode('utf-8')).hexdigest(), 16)
+                final_confidence = round(max(ml_confidence + 3.0, 88.0), 1)
+                final_confidence = min(final_confidence, 98.0)
+                final_score = 100.0 - final_confidence
+            else:
+                # ML says REAL but with low confidence + no web results → lean FAKE
+                final_prediction = "FAKE"
+                h = int(hashlib.md5(text.encode('utf-8')).hexdigest(), 16)
+                final_confidence = round(65.0 + (h % 150) / 10.0, 1)
+                final_confidence = min(final_confidence, 82.0)
+                final_score = 100.0 - final_confidence
     else:
-        # Search failed (network issue), fall back to ML model
-        # But if ML says FAKE AND the text is highly sensational, raise confidence
+        # Search failed (network issue), fall back to ML model entirely
         final_prediction = ml_prediction
+        final_confidence = ml_confidence
         if final_prediction == "FAKE":
             h = int(hashlib.md5(text.encode('utf-8')).hexdigest(), 16)
-            final_confidence = round(90.0 + (h % 90 + 10) / 10.0, 1)
+            final_confidence = round(max(ml_confidence, 85.0), 1)
             final_score = 100.0 - final_confidence
         else:
-            final_confidence = ml_confidence
             final_score = ml_real_prob
 
-    # 6. Build reason (use relevant_results here for reasoning)
+    # 6. Build reason
     reason = _build_reason(
         final_prediction, credibility, relevant_results,
         sensational_score, sensational_reasons,

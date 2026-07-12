@@ -387,3 +387,331 @@ async function loadHistory() {
 
 // Initial load of history when page loads
 loadHistory();
+
+
+/* =========================================================================
+   7. News Feed Explorer (Global & Dataset)
+   ========================================================================= */
+const fetchGlobalBtn  = document.getElementById("fetchGlobalBtn");
+const fetchDatasetBtn = document.getElementById("fetchDatasetBtn");
+const exploreLoading  = document.getElementById("exploreLoading");
+const exploreList     = document.getElementById("exploreList");
+const manualTabBtn    = document.getElementById("manual-tab");
+
+// Fetch and render global news
+if (fetchGlobalBtn) {
+  fetchGlobalBtn.addEventListener("click", async () => {
+    try {
+      exploreLoading.classList.remove("d-none");
+      exploreList.innerHTML = "";
+      
+      const response = await fetch("/api/fetch_global");
+      const data = await response.json();
+      
+      if (!data.success || !data.articles || data.articles.length === 0) {
+        exploreList.innerHTML = `
+          <li class="no-sources">
+            <i class="bi bi-exclamation-triangle"></i>
+            Failed to fetch global news. Make sure you have internet access.
+          </li>`;
+        return;
+      }
+      
+      data.articles.forEach(art => {
+        const li = document.createElement("li");
+        li.className = "source-item d-flex align-items-center justify-content-between py-3";
+        li.innerHTML = `
+          <div class="source-info" style="flex: 1; min-width: 0; padding-right: 15px;">
+            <div class="source-name" style="font-size: 0.8rem; color: var(--accent);">
+              <i class="bi bi-globe me-1"></i> ${escapeHtml(art.source)}
+            </div>
+            <div class="source-title text-light" style="font-size: 0.88rem; white-space: normal; overflow: visible; text-overflow: clip;">
+              ${escapeHtml(art.title)}
+            </div>
+          </div>
+          <button class="verify-btn" data-text="${escapeHtml(art.title)}">
+            <i class="bi bi-shield-fill-check"></i> Verify
+          </button>
+        `;
+        exploreList.appendChild(li);
+      });
+      
+      // Bind verify actions
+      bindVerifyButtons();
+      
+    } catch (err) {
+      console.error(err);
+      exploreList.innerHTML = `
+        <li class="no-sources">
+          <i class="bi bi-x-circle"></i>
+          Error loading global news feed.
+        </li>`;
+    } finally {
+      exploreLoading.classList.add("d-none");
+    }
+  });
+}
+
+// Fetch and render dataset news samples
+if (fetchDatasetBtn) {
+  fetchDatasetBtn.addEventListener("click", async () => {
+    try {
+      exploreLoading.classList.remove("d-none");
+      exploreList.innerHTML = "";
+      
+      const response = await fetch("/api/fetch_dataset");
+      const data = await response.json();
+      
+      if (!data.success || !data.articles || data.articles.length === 0) {
+        exploreList.innerHTML = `
+          <li class="no-sources">
+            <i class="bi bi-exclamation-triangle"></i>
+            Failed to fetch dataset samples.
+          </li>`;
+        return;
+      }
+      
+      data.articles.forEach(art => {
+        const isFake = art.label === "FAKE";
+        const labelStyle = isFake ? "background: rgba(252, 129, 129, 0.15); color: var(--fake-color);" : "background: rgba(104, 211, 145, 0.15); color: var(--real-color);";
+        
+        const li = document.createElement("li");
+        li.className = "source-item d-flex align-items-center justify-content-between py-3";
+        li.innerHTML = `
+          <div class="source-info" style="flex: 1; min-width: 0; padding-right: 15px;">
+            <div class="source-name">
+              <span class="tier-badge" style="${labelStyle} font-size: 0.58rem; letter-spacing: 0.05em; padding: 0.1em 0.45em; border-radius: 4px; text-transform: uppercase;">
+                Dataset: ${art.label}
+              </span>
+            </div>
+            <div class="source-title text-light" style="font-size: 0.88rem; white-space: normal; overflow: visible; text-overflow: clip;">
+              ${escapeHtml(art.text)}
+            </div>
+          </div>
+          <button class="verify-btn" data-text="${escapeHtml(art.text)}">
+            <i class="bi bi-shield-fill-check"></i> Verify
+          </button>
+        `;
+        exploreList.appendChild(li);
+      });
+      
+      // Bind verify actions
+      bindVerifyButtons();
+      
+    } catch (err) {
+      console.error(err);
+      exploreList.innerHTML = `
+        <li class="no-sources">
+          <i class="bi bi-x-circle"></i>
+          Error loading dataset samples.
+        </li>`;
+    } finally {
+      exploreLoading.classList.add("d-none");
+    }
+  });
+}
+
+// Bind click event to dynamic Verify buttons
+function bindVerifyButtons() {
+  exploreList.querySelectorAll(".verify-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const textToVerify = btn.dataset.text;
+      if (!textToVerify) return;
+      
+      // 1. Fill manual textarea
+      newsText.value = textToVerify;
+      
+      // 2. Trigger input event so char counter updates
+      newsText.dispatchEvent(new Event("input"));
+      
+      // 3. Switch tab back to manual
+      if (manualTabBtn) {
+        // Bootstrap 5 tab activation
+        const tab = new bootstrap.Tab(manualTabBtn);
+        tab.show();
+      }
+      
+      // 4. Scroll textarea into view and focus
+      newsText.scrollIntoView({ behavior: "smooth", block: "center" });
+      newsText.focus();
+      
+      // 5. Submit form automatically
+      newsForm.dispatchEvent(new Event("submit"));
+    });
+  });
+}
+
+
+/* =========================================================================
+   8. Voice Input — Speech Recognition (Microphone)
+   — Uses the Web Speech API to transcribe spoken news into the textarea.
+   — The transcribed text is then analysed like any typed text.
+   ========================================================================= */
+
+const micBtn        = document.getElementById("micBtn");
+const micIcon       = document.getElementById("micIcon");
+const voiceStatus   = document.getElementById("voiceStatus");
+const voiceStatusText = document.getElementById("voiceStatusText");
+
+// Feature detection for Web Speech API
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+if (SpeechRecognition && micBtn) {
+  const recognition = new SpeechRecognition();
+  
+  // Configuration
+  recognition.continuous   = true;    // Keep listening until manually stopped
+  recognition.interimResults = true;  // Show partial results while speaking
+  recognition.lang         = "hi-IN"; // Default: Hindi (supports Hindi + English mixed)
+  recognition.maxAlternatives = 1;
+
+  let isListening   = false;
+  let finalTranscript = "";
+
+  /**
+   * Start / Stop listening on mic button click
+   */
+  micBtn.addEventListener("click", () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening();
+    }
+  });
+
+  /**
+   * startListening() — activate microphone and start recognition
+   */
+  function startListening() {
+    // Reset
+    finalTranscript = newsText.value; // Preserve existing text in textarea
+    
+    try {
+      recognition.start();
+      isListening = true;
+
+      // UI updates
+      micBtn.classList.add("mic-active");
+      micIcon.className = "bi bi-mic-fill";
+      voiceStatus.classList.remove("d-none");
+      voiceStatusText.textContent = "🎙️ Listening... Speak your news";
+
+      // Hide any previous errors/results
+      errorPanel.classList.add("d-none");
+    } catch (err) {
+      console.error("Speech recognition start error:", err);
+      showError("Microphone access failed. Please check browser permissions.");
+    }
+  }
+
+  /**
+   * stopListening() — deactivate microphone and stop recognition
+   */
+  function stopListening() {
+    recognition.stop();
+    isListening = false;
+
+    // UI updates
+    micBtn.classList.remove("mic-active");
+    micIcon.className = "bi bi-mic-fill";
+    voiceStatus.classList.add("d-none");
+  }
+
+  /**
+   * onresult — fired when the speech engine returns a result (partial or final)
+   */
+  recognition.onresult = (event) => {
+    let interimTranscript = "";
+
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        finalTranscript += (finalTranscript ? " " : "") + transcript;
+      } else {
+        interimTranscript += transcript;
+      }
+    }
+
+    // Update textarea with final + interim text
+    newsText.value = finalTranscript + (interimTranscript ? " " + interimTranscript : "");
+    newsText.dispatchEvent(new Event("input")); // update char counter
+
+    // Update status text
+    if (interimTranscript) {
+      voiceStatusText.textContent = "🎙️ Listening... (recognizing speech)";
+    } else {
+      voiceStatusText.textContent = "🎙️ Listening... Speak your news";
+    }
+  };
+
+  /**
+   * onerror — handle recognition errors gracefully
+   */
+  recognition.onerror = (event) => {
+    console.error("Speech recognition error:", event.error);
+    stopListening();
+
+    const errorMessages = {
+      "not-allowed":     "Microphone access denied. Please allow microphone permission in your browser.",
+      "no-speech":       "No speech detected. Please try speaking again.",
+      "audio-capture":   "No microphone found. Please connect a microphone.",
+      "network":         "Network error. Speech recognition requires internet.",
+      "aborted":         "Speech recognition was stopped.",
+    };
+
+    const msg = errorMessages[event.error] || `Speech recognition error: ${event.error}`;
+    
+    // Don't show error for "aborted" — user intentionally stopped
+    if (event.error !== "aborted") {
+      showError(msg);
+    }
+  };
+
+  /**
+   * onend — fired when recognition session ends (timeout or manual stop)
+   */
+  recognition.onend = () => {
+    // If still supposed to be listening (timed out), restart
+    if (isListening) {
+      try {
+        recognition.start();
+      } catch (e) {
+        stopListening();
+      }
+    }
+  };
+
+  // Language toggle: let user switch between Hindi and English
+  // Double-click mic to toggle language
+  micBtn.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    if (recognition.lang === "hi-IN") {
+      recognition.lang = "en-US";
+      micBtn.title = "Language: English — Click to speak, double-click to switch to Hindi";
+      if (isListening) {
+        voiceStatusText.textContent = "🎙️ Listening (English)... Speak your news";
+      }
+    } else {
+      recognition.lang = "hi-IN";
+      micBtn.title = "Language: Hindi — Click to speak, double-click to switch to English";
+      if (isListening) {
+        voiceStatusText.textContent = "🎙️ Listening (Hindi)... Speak your news";
+      }
+    }
+
+    // If currently listening, restart with new language
+    if (isListening) {
+      recognition.stop();
+      setTimeout(() => {
+        try { recognition.start(); } catch(e) {}
+      }, 200);
+    }
+  });
+
+} else if (micBtn) {
+  // Browser doesn't support Speech Recognition
+  micBtn.disabled = true;
+  micBtn.title = "Speech recognition is not supported in this browser. Use Chrome or Edge.";
+  micBtn.classList.add("mic-unsupported");
+}
+

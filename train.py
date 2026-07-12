@@ -1,3 +1,6 @@
+
+
+
 """
 train.py
 --------
@@ -132,7 +135,7 @@ else:
     if not os.path.exists(SYNTH_CSV):
         print("  Generating synthetic dataset (no real dataset found)...")
         from data.generate_dataset import create_dataset
-        create_dataset(n_samples=3000, output_path=SYNTH_CSV)
+        create_dataset(n_samples=10000, output_path=SYNTH_CSV)
     else:
         print("  Using existing synthetic dataset.")
 
@@ -175,8 +178,8 @@ print(f"  {len(df)} rows remain after cleaning.")
 print("\n[4/6] Vectorizing text with TF-IDF...")
 
 vectorizer = TfidfVectorizer(
-    max_features=10_000,    # vocabulary size cap
-    ngram_range=(1, 2),     # unigrams AND bigrams
+    max_features=15_000,    # vocabulary size cap (increased for better coverage)
+    ngram_range=(1, 3),     # unigrams, bigrams AND trigrams for richer features
     sublinear_tf=True,      # apply log(TF) to reduce the impact of very common words
 )
 
@@ -221,7 +224,7 @@ print(f"  Testing  samples : {X_test.shape[0]}")
 
 print("\n[5/6] Training Logistic Regression model...")
 
-model = LogisticRegression(max_iter=1000, C=1.0, solver="lbfgs", n_jobs=-1)
+model = LogisticRegression(max_iter=1000, C=1.0, solver="lbfgs", n_jobs=-1, class_weight="balanced")
 model.fit(X_train, y_train)
 
 
@@ -261,8 +264,27 @@ with open(MODEL_PATH, "wb") as f:
 with open(VECTORIZER_PATH, "wb") as f:
     pickle.dump(vectorizer, f)
 
+# Precompute and save the pre-trained dataset vectors and original text/labels
+DATASET_VECTORS_PATH = "model/dataset_vectors.pkl"
+DATASET_INFO_PATH = "model/dataset_info.pkl"
+
+with open(DATASET_VECTORS_PATH, "wb") as f:
+    pickle.dump(X, f)
+
+dataset_info = []
+for idx, row in df.iterrows():
+    dataset_info.append({
+        "text": row[text_column],
+        "label": row["label"]
+    })
+
+with open(DATASET_INFO_PATH, "wb") as f:
+    pickle.dump(dataset_info, f)
+
 print(f"\n  [SAVED] Model saved      -> {MODEL_PATH}")
 print(f"  [SAVED] Vectorizer saved -> {VECTORIZER_PATH}")
+print(f"  [SAVED] Dataset vectors saved -> {DATASET_VECTORS_PATH}")
+print(f"  [SAVED] Dataset info saved    -> {DATASET_INFO_PATH}")
 
 print("\n" + "=" * 60)
 print("  TRAINING COMPLETE — you can now run: python app.py")

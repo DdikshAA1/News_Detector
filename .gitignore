@@ -1,4 +1,7 @@
-
 history.db
 __pycache__/
 .vercel
+.env
+test_full_pipeline.py
+debug_nvidia.py
+full_test.py

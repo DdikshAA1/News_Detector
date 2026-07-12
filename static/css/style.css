@@ -801,3 +801,200 @@ body {
   margin-bottom: 0.5rem;
   opacity:       0.4;
 }
+
+/* -------------------------------------------------------------------------
+   20. Custom Tabs & Explore Feed Styles
+   ------------------------------------------------------------------------- */
+.custom-tabs {
+  border-bottom: 1px solid var(--border-subtle) !important;
+  gap: 0.25rem;
+}
+
+.custom-tabs .nav-link {
+  background: transparent !important;
+  border: none !important;
+  color: var(--text-muted) !important;
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.6rem 1rem;
+  border-radius: var(--radius-md) var(--radius-md) 0 0 !important;
+  transition: all var(--transition);
+  position: relative;
+}
+
+.custom-tabs .nav-link:hover {
+  color: var(--text-primary) !important;
+}
+
+.custom-tabs .nav-link.active {
+  color: var(--accent) !important;
+}
+
+.custom-tabs .nav-link.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+.explore-list-container {
+  max-height: 380px;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.explore-list-container::-webkit-scrollbar {
+  width: 6px;
+}
+.explore-list-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+.explore-list-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 99px;
+}
+.explore-list-container::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+.verify-btn {
+  background: var(--accent-glow) !important;
+  border: 1px solid rgba(99, 179, 237, 0.4) !important;
+  color: var(--accent) !important;
+  border-radius: 6px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  transition: all var(--transition);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+
+.verify-btn:hover {
+  background: linear-gradient(135deg, var(--accent) 0%, #4299e1 100%) !important;
+  color: #0a0d14 !important;
+  box-shadow: 0 0 10px var(--accent-glow);
+  transform: translateY(-1px);
+}
+
+/* -------------------------------------------------------------------------
+   21. Voice Input — Microphone Button & Status Indicator
+   ------------------------------------------------------------------------- */
+
+/* Microphone button inside textarea wrapper */
+.mic-btn {
+  position:      absolute;
+  top:           0.65rem;
+  right:         0.65rem;
+  width:         42px;
+  height:        42px;
+  border-radius: 50%;
+  border:        1px solid var(--border-input);
+  background:    rgba(99, 179, 237, 0.08);
+  color:         var(--accent);
+  font-size:     1.1rem;
+  cursor:        pointer;
+  display:       flex;
+  align-items:   center;
+  justify-content: center;
+  transition:    all 0.3s ease;
+  z-index:       2;
+  backdrop-filter: blur(8px);
+}
+
+.mic-btn:hover {
+  background:    rgba(99, 179, 237, 0.18);
+  border-color:  rgba(99, 179, 237, 0.5);
+  transform:     scale(1.08);
+  box-shadow:    0 0 16px rgba(99, 179, 237, 0.25);
+}
+
+/* Active / Recording state */
+.mic-btn.mic-active {
+  background:    rgba(252, 80, 80, 0.15);
+  border-color:  rgba(252, 80, 80, 0.5);
+  color:         #fc5050;
+  animation:     mic-pulse 1.5s ease-in-out infinite;
+  box-shadow:    0 0 20px rgba(252, 80, 80, 0.3);
+}
+
+.mic-btn.mic-active:hover {
+  background:    rgba(252, 80, 80, 0.25);
+  border-color:  rgba(252, 80, 80, 0.6);
+}
+
+/* Unsupported state */
+.mic-btn.mic-unsupported {
+  opacity:       0.3;
+  cursor:        not-allowed;
+}
+
+.mic-btn.mic-unsupported:hover {
+  transform:     none;
+  box-shadow:    none;
+}
+
+/* Pulse animation for recording */
+@keyframes mic-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(252, 80, 80, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 12px rgba(252, 80, 80, 0);
+  }
+}
+
+/* Voice status indicator bar */
+.voice-status {
+  margin-top:    0.5rem;
+  margin-bottom: 0.25rem;
+  animation:     slide-up 0.3s ease;
+}
+
+.voice-status-inner {
+  display:        flex;
+  align-items:    center;
+  gap:            0.6rem;
+  padding:        0.55rem 0.85rem;
+  background:     rgba(252, 80, 80, 0.06);
+  border:         1px solid rgba(252, 80, 80, 0.2);
+  border-radius:  var(--radius-md);
+}
+
+.voice-pulse {
+  display:      inline-block;
+  width:        10px;
+  height:       10px;
+  border-radius: 50%;
+  background:   #fc5050;
+  flex-shrink:  0;
+  animation:    voice-dot-pulse 1s ease-in-out infinite;
+}
+
+@keyframes voice-dot-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.7);
+  }
+}
+
+.voice-status-text {
+  font-size:      0.78rem;
+  font-weight:    600;
+  color:          var(--text-muted);
+  letter-spacing: 0.02em;
+}
+

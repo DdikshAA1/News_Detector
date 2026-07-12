@@ -55,8 +55,8 @@
           Detect <span class="text-accent">Fake News</span> with AI
         </h1>
         <p class="hero-subtitle">
-          Powered by Machine Learning & Natural Language Processing. Paste any
-          headline or article and get an instant AI verdict.
+          Powered by Machine Learning &amp; Natural Language Processing. Paste any
+          headline, article, or <strong>speak through your mic</strong> 🎙️ to get an instant AI verdict.
         </p>
 
         <!-- Tech stack pills -->
@@ -66,6 +66,7 @@
           <span class="tech-pill">NLTK</span>
           <span class="tech-pill">Logistic Regression</span>
           <span class="tech-pill">Flask</span>
+          <span class="tech-pill"><i class="bi bi-mic-fill me-1"></i>Voice Input</span>
         </div>
       </div>
     </section>
@@ -77,63 +78,160 @@
       <div class="row justify-content-center">
         <div class="col-lg-8">
           <div class="card-glass p-4 p-md-5">
-            <!-- Input Form -->
-            <form id="newsForm" novalidate>
-              <label for="newsText" class="form-label label-custom">
-                <i class="bi bi-newspaper me-2 text-accent"></i>
-                Enter News Headline or Article
-              </label>
+            <!-- Navigation Tabs -->
+            <ul class="nav nav-tabs custom-tabs mb-4" id="newsTabs" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button
+                  class="nav-link active"
+                  id="manual-tab"
+                  data-bs-toggle="tab"
+                  data-bs-target="#manual-pane"
+                  type="button"
+                  role="tab"
+                  aria-controls="manual-pane"
+                  aria-selected="true"
+                >
+                  <i class="bi bi-pencil-square me-2"></i>Analyze Text
+                </button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button
+                  class="nav-link"
+                  id="explore-tab"
+                  data-bs-toggle="tab"
+                  data-bs-target="#explore-pane"
+                  type="button"
+                  role="tab"
+                  aria-controls="explore-pane"
+                  aria-selected="false"
+                >
+                  <i class="bi bi-compass me-2"></i>Explore News Feed
+                </button>
+              </li>
+            </ul>
 
-              <div class="textarea-wrapper mb-1">
-                <textarea
-                  id="newsText"
-                  class="form-control textarea-custom"
-                  rows="6"
-                  placeholder="Paste your news headline or article text here…
+            <div class="tab-content" id="newsTabsContent">
+              <!-- MANUAL VERIFICATION TAB PANE -->
+              <div
+                class="tab-pane fade show active"
+                id="manual-pane"
+                role="tabpanel"
+                aria-labelledby="manual-tab"
+              >
+                <!-- Input Form -->
+                <form id="newsForm" novalidate>
+                  <label for="newsText" class="form-label label-custom">
+                    <i class="bi bi-newspaper me-2 text-accent"></i>
+                    Enter News Headline or Article
+                  </label>
+
+                  <div class="textarea-wrapper mb-1">
+                    <textarea
+                      id="newsText"
+                      class="form-control textarea-custom"
+                      rows="6"
+                      placeholder="Paste your news headline or article text here…
 
 Example:
 • 'SHOCKING: Scientists Discover Government Has Been Hiding Cure'
 • 'Federal Reserve releases quarterly economic data amid inflation concerns'"
-                  maxlength="5000"
-                ></textarea>
-                <!-- Live character counter -->
-                <span class="char-counter" id="charCounter">0 / 5000</span>
-              </div>
+                      maxlength="5000"
+                    ></textarea>
+                    <!-- Voice Input Microphone Button -->
+                    <button type="button" class="mic-btn" id="micBtn" title="Click to speak news">
+                      <i class="bi bi-mic-fill" id="micIcon"></i>
+                    </button>
+                    <!-- Live character counter -->
+                    <span class="char-counter" id="charCounter">0 / 5000</span>
+                  </div>
 
-              <!-- Quick example buttons -->
-              <div class="mb-4">
-                <small class="text-muted me-2">Quick examples:</small>
-                <button
-                  type="button"
-                  class="btn btn-example me-1 mb-1"
-                  data-text="SHOCKING: Scientists Discover Government Has Been Hiding Cancer Cure for Decades — Share Before Deleted"
-                >
-                  <i class="bi bi-exclamation-triangle me-1"></i>Fake Example
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-example mb-1"
-                  data-text="Federal Reserve officials announced a 0.25% interest rate adjustment following the quarterly economic review, citing stable inflation data."
-                >
-                  <i class="bi bi-check-circle me-1"></i>Real Example
-                </button>
-              </div>
+                  <!-- Voice status indicator -->
+                  <div id="voiceStatus" class="voice-status d-none">
+                    <div class="voice-status-inner">
+                      <span class="voice-pulse"></span>
+                      <span class="voice-status-text" id="voiceStatusText">Listening...</span>
+                    </div>
+                  </div>
 
-              <!-- Submit button -->
-              <button
-                type="submit"
-                class="btn btn-analyse w-100"
-                id="analyseBtn"
+                  <!-- Quick example buttons -->
+                  <div class="mb-4">
+                    <small class="text-muted me-2">Quick examples:</small>
+                    <button
+                      type="button"
+                      class="btn btn-example me-1 mb-1"
+                      data-text="SHOCKING: Scientists Discover Government Has Been Hiding Cancer Cure for Decades — Share Before Deleted"
+                    >
+                      <i class="bi bi-exclamation-triangle me-1"></i>Fake Example
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-example mb-1"
+                      data-text="Federal Reserve officials announced a 0.25% interest rate adjustment following the quarterly economic review, citing stable inflation data."
+                    >
+                      <i class="bi bi-check-circle me-1"></i>Real Example
+                    </button>
+                  </div>
+
+                  <!-- Submit button -->
+                  <button
+                    type="submit"
+                    class="btn btn-analyse w-100"
+                    id="analyseBtn"
+                  >
+                    <span class="btn-text">
+                      <i class="bi bi-cpu me-2"></i>Analyse with AI
+                    </span>
+                    <span class="btn-loading d-none">
+                      <span class="spinner-border spinner-border-sm me-2"></span>
+                      Analysing & Cross-Referencing...
+                    </span>
+                  </button>
+                </form>
+              </div>
+              <!-- /manual-pane -->
+
+              <!-- EXPLORE NEWS TAB PANE -->
+              <div
+                class="tab-pane fade"
+                id="explore-pane"
+                role="tabpanel"
+                aria-labelledby="explore-tab"
               >
-                <span class="btn-text">
-                  <i class="bi bi-cpu me-2"></i>Analyse with AI
-                </span>
-                <span class="btn-loading d-none">
-                  <span class="spinner-border spinner-border-sm me-2"></span>
-                  Analysing & Cross-Referencing...
-                </span>
-              </button>
-            </form>
+                <div class="explore-header mb-4 text-center">
+                  <h4 class="mb-2">Verify Global or Pre-Trained News</h4>
+                  <p class="text-muted small">
+                    Fetch current global headlines or draw samples from our training dataset to verify them immediately.
+                  </p>
+                  
+                  <div class="d-flex justify-content-center gap-2 mt-3">
+                    <button id="fetchGlobalBtn" class="btn btn-analyse px-4 py-2" style="font-size: 0.85rem; transform: none; box-shadow: none;">
+                      <i class="bi bi-globe me-2"></i>Load Global News
+                    </button>
+                    <button id="fetchDatasetBtn" class="btn btn-example px-4 py-2" style="font-size: 0.85rem;">
+                      <i class="bi bi-database me-2"></i>Load Dataset News
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Explore loading spinner -->
+                <div id="exploreLoading" class="text-center my-5 d-none">
+                  <div class="spinner-border text-accent mb-3" role="status"></div>
+                  <div class="text-muted small">Fetching news stories...</div>
+                </div>
+
+                <!-- Explore list -->
+                <div id="exploreListContainer" class="explore-list-container">
+                  <ul class="source-list" id="exploreList">
+                    <li class="no-sources">
+                      <i class="bi bi-compass"></i>
+                      Choose a source above to load and check news articles.
+                    </li>
+                  </ul>
+                </div>
+              </div>
+              <!-- /explore-pane -->
+            </div>
+            <!-- /tab-content -->
 
             <!-- ============================================================ -->
             <!--  RESULT PANEL (hidden until prediction returns)               -->
@@ -344,11 +442,8 @@ Example:
     <!-- ================================================================== -->
     <footer class="footer text-center py-4">
       <div class="container">
-        <p class="mb-1 text-light small">
-          Built with
-          <i class="bi bi-heart-fill text-accent mx-1"></i>
-          using Python · Flask · scikit-learn · NLTK · Bootstrap 5
-        </p>
+        <p class="mb-1 text-light small">Built with <i class="bi bi-heart-fill text-accent mx-1"></i> by Diksha using Python · Flask · scikit-learn · NLTK · Bootstrap 5</p>
+
         <p class="mb-0 text-white-50 small">
           A beginner-friendly AI/ML portfolio project
         </p>

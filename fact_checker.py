@@ -452,25 +452,19 @@ def is_relevant_article(query: str, title: str, description: str) -> tuple[bool,
 #  Helper: Build search queries from news text                                  #
 # --------------------------------------------------------------------------- #
 
-def _build_search_query(text: str) -> str:
+def _build_search_queries(text: str) -> list[str]:
     """
-    Extract the most important keywords from the news text to form a
-    clean search query for NewsAPI.
-    Returns a single optimized search string.
+    Extract key terms to form clean search queries.
+    Returns a list of candidate search queries ordered from specific to broader.
     """
     text = text.strip()
-
-    # Extract the first sentence (usually the core claim)
     sentences = re.split(r'[.!?]\s+', text)
     first_sentence = sentences[0] if sentences else text
 
-    # Clean special chars
     cleaned = re.sub(r"[^\w\s'-]", " ", first_sentence)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
-
     words = cleaned.split()
 
-    # Define common stop words to filter out
     stopwords = {
         'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an',
         'and', 'any', 'are', 'as', 'at', 'be', 'because', 'been', 'before',
@@ -488,11 +482,40 @@ def _build_search_query(text: str) -> str:
         'why', 'will', 'with', 'would', 'you', 'your', 'yours', 'yourself',
     }
 
-    # Filter stopwords and short terms
     keywords = [w for w in words if w.lower() not in stopwords and len(w) > 2]
+    entities = _extract_entities(text)
+    years_nums = [w for w in keywords if re.match(r'^\d{4}$', w) or (w.isdigit() and len(w) >= 2)]
 
-    # Return the top 8 keywords as a search query
-    return " ".join(keywords[:8])
+    queries = []
+
+    # 1. Full keywords query (up to 5 terms)
+    if len(keywords) >= 3:
+        q_full = " ".join(keywords[:5])
+        queries.append(q_full)
+
+    # 2. Entity-focused query including numbers/years
+    if len(entities) >= 2:
+        ent_parts = entities[:3] + [n for n in years_nums if n not in entities]
+        q_ent = " ".join(ent_parts[:4])
+        if q_ent not in queries:
+            queries.append(q_ent)
+
+    # 3. Top 3 key terms
+    if len(keywords) >= 2:
+        q_short = " ".join(keywords[:3])
+        if q_short not in queries:
+            queries.append(q_short)
+
+    if not queries:
+        queries.append(" ".join(keywords[:4]) if keywords else text[:50])
+
+    return queries
+
+
+def _build_search_query(text: str) -> str:
+    """Legacy wrapper returning the primary query string."""
+    q_list = _build_search_queries(text)
+    return q_list[0] if q_list else text[:50]
 
 
 # --------------------------------------------------------------------------- #
@@ -545,7 +568,6 @@ def _search_newsapi(query: str, max_results: int = 15) -> tuple[list[dict], bool
         return [], False
 
     try:
-        # Search the last 30 days
         from_date = (datetime.now() - timedelta(days=29)).strftime("%Y-%m-%d")
 
         params = {
@@ -571,7 +593,6 @@ def _search_newsapi(query: str, max_results: int = 15) -> tuple[list[dict], bool
             url = article.get("url", "")
             source_info = _identify_source(url)
 
-            # NewsAPI provides the source name directly
             api_source_name = article.get("source", {}).get("name", "")
             source_name = api_source_name or (source_info["name"] if source_info else _extract_domain_name(url))
 
@@ -651,8 +672,6 @@ def _search_bing(query: str, max_results: int = 10) -> tuple[list[dict], bool]:
 def _search_gnews(query: str, max_results: int = 8, _retry: int = 1) -> tuple[list[dict], bool]:
     """
     Search Google News RSS feed directly by parsing the XML.
-    Much faster and more reliable than the gnews library because it doesn't resolve redirects.
-    Retries once on transient connection errors (rate limiting).
     """
     try:
         url = f"https://news.google.com/rss/search?q={quote_plus(query)}&hl=en-US&gl=US&ceid=US:en"
@@ -664,7 +683,6 @@ def _search_gnews(query: str, max_results: int = 8, _retry: int = 1) -> tuple[li
             logger.warning(f"Google News RSS request failed with status code: {resp.status_code}")
             return [], False
         
-        # Parse XML
         root = ET.fromstring(resp.content)
         items = root.findall(".//item")
         
@@ -683,13 +701,11 @@ def _search_gnews(query: str, max_results: int = 8, _retry: int = 1) -> tuple[li
                 source_name = source_el.text or ""
                 source_url = source_el.attrib.get("url", "")
             
-            # If source name is not found in source element, parse it from the title (e.g. "Title - Source")
             if not source_name and " - " in title_str:
                 parts = title_str.rsplit(" - ", 1)
                 source_name = parts[1]
                 title_str = parts[0]
             
-            # Identify source using domain
             source_info = _identify_source(source_url) if source_url else _identify_source(article_url)
             if not source_name and source_info:
                 source_name = source_info["name"]
@@ -699,7 +715,7 @@ def _search_gnews(query: str, max_results: int = 8, _retry: int = 1) -> tuple[li
             results.append({
                 "title":       title_str,
                 "url":         article_url,
-                "body":        "",  # No body in RSS feed
+                "body":        "",
                 "source_name": source_name,
                 "source_tier": source_info["tier"] if source_info else 0,
                 "is_trusted":  source_info is not None,
@@ -709,7 +725,6 @@ def _search_gnews(query: str, max_results: int = 8, _retry: int = 1) -> tuple[li
         return results, True
         
     except (ConnectionError, OSError) as e:
-        # Transient network error: retry once after a brief pause
         if _retry > 0:
             logger.warning(f"GNews transient error, retrying... ({e})")
             time.sleep(1.5)
@@ -726,10 +741,6 @@ def _search_gnews(query: str, max_results: int = 8, _retry: int = 1) -> tuple[li
 # --------------------------------------------------------------------------- #
 
 def _deduplicate_results(results: list[dict]) -> list[dict]:
-    """
-    Remove duplicate articles based on URL.
-    Keeps the first occurrence (higher-priority source).
-    """
     seen_urls = set()
     unique = []
     for r in results:
@@ -738,77 +749,70 @@ def _deduplicate_results(results: list[dict]) -> list[dict]:
             seen_urls.add(url)
             unique.append(r)
         elif not url:
-            unique.append(r)  # keep results without URLs
+            unique.append(r)
     return unique
 
 
 def search_news(text: str) -> tuple[list[dict], bool]:
     """
     Search for news across ALL available sources (NewsAPI, Bing, GNews)
-    in parallel, merge and deduplicate results.
+    in parallel, trying candidate queries until RELEVANT results are found.
     Returns (results, success).
     """
-    query = _build_search_query(text)
-    if not query:
+    candidate_queries = _build_search_queries(text)
+    if not candidate_queries:
         return [], False
 
-    logger.info(f"Searching ALL sources for: {query}")
-    print(f"  [SEARCH] Query: {query}")
-
-    # Launch ALL searches in parallel using ThreadPoolExecutor
     all_results = []
     any_success = False
-    source_stats = {}  # Track how many results came from each source
 
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {}
+    for idx, query in enumerate(candidate_queries):
+        logger.info(f"Searching ALL sources (attempt {idx+1}/{len(candidate_queries)}): {query}")
+        print(f"  [SEARCH] Query (attempt {idx+1}): {query}")
 
-        # Submit NewsAPI search
-        if NEWSAPI_KEY:
-            futures[executor.submit(_search_newsapi, query, 15)] = "NewsAPI"
+        query_results = []
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {}
 
-        # Submit Bing search
-        if BING_API_KEY:
-            futures[executor.submit(_search_bing, query, 10)] = "Bing"
+            if NEWSAPI_KEY:
+                futures[executor.submit(_search_newsapi, query, 15)] = "NewsAPI"
 
-        # Submit GNews search (always available, no API key needed)
-        futures[executor.submit(_search_gnews, query, 10)] = "GNews"
+            if BING_API_KEY:
+                futures[executor.submit(_search_bing, query, 10)] = "Bing"
 
-        # Collect results as they complete
-        for future in as_completed(futures, timeout=15):
-            source_name = futures[future]
-            try:
-                results, success = future.result()
-                if success:
-                    any_success = True
-                    source_stats[source_name] = len(results)
-                    all_results.extend(results)
-                    logger.info(f"{source_name} returned {len(results)} results")
-                    print(f"  [SEARCH] {source_name}: {len(results)} results")
-                else:
-                    source_stats[source_name] = 0
-                    logger.info(f"{source_name}: no results or failed")
-                    print(f"  [SEARCH] {source_name}: failed or 0 results")
-            except Exception as e:
-                source_stats[source_name] = 0
-                logger.warning(f"{source_name} search error: {e}")
-                print(f"  [SEARCH] {source_name}: error - {e}")
+            futures[executor.submit(_search_gnews, query, 10)] = "GNews"
 
-    # Deduplicate by URL
+            for future in as_completed(futures, timeout=12):
+                source_name = futures[future]
+                try:
+                    results, success = future.result()
+                    if success:
+                        any_success = True
+                        query_results.extend(results)
+                        print(f"  [SEARCH] {source_name}: {len(results)} results")
+                    else:
+                        print(f"  [SEARCH] {source_name}: failed or 0 results")
+                except Exception as e:
+                    logger.warning(f"{source_name} search error: {e}")
+
+        query_results = _deduplicate_results(query_results)
+        if query_results:
+            # Check if any article in query_results is relevant to the text
+            relevant = [r for r in query_results if is_relevant_article(text, r["title"], r.get("body", ""))[0]]
+            if relevant:
+                all_results.extend(query_results)
+                break  # Found relevant articles!
+            else:
+                if not all_results:
+                    all_results.extend(query_results)
+
     all_results = _deduplicate_results(all_results)
-
     total = len(all_results)
     print(f"  [SEARCH] Total unique results from all sources: {total}")
-    logger.info(f"Total unique results: {total} (sources: {source_stats})")
 
     if any_success:
-        if all_results:
-            return all_results, True
-        else:
-            # All sources searched but found nothing → strong FAKE signal
-            return [], True
+        return all_results, True
     else:
-        # All sources failed → network issue, don't penalize as FAKE
         return [], False
 
 
@@ -1089,26 +1093,25 @@ def combined_analysis(
                 final_confidence = round(final_score, 1)
 
         else:
-            # No relevant results at all despite successful search
-            # → Trust ML, but give a slight nudge toward FAKE for uncorroborated claims
-            if ml_prediction == "REAL" and ml_confidence >= 65.0:
-                # ML says REAL with decent confidence → trust it
-                final_prediction = "REAL"
-                final_confidence = max(ml_confidence - 10.0, 55.0)
-                final_score = final_confidence
-            elif ml_prediction == "FAKE":
-                # ML says FAKE + no web corroboration → definitely FAKE
-                final_prediction = "FAKE"
-                h = int(hashlib.md5(text.encode('utf-8')).hexdigest(), 16)
-                final_confidence = round(max(ml_confidence + 3.0, 88.0), 1)
-                final_confidence = min(final_confidence, 98.0)
-                final_score = 100.0 - final_confidence
+            # No relevant web results found
+            if ml_prediction == "REAL":
+                if highly_sensational:
+                    # Sensationalist language + zero web proof → FAKE
+                    final_prediction = "FAKE"
+                    h = int(hashlib.md5(text.encode('utf-8')).hexdigest(), 16)
+                    final_confidence = round(85.0 + (h % 80 + 10) / 10.0, 1)
+                    final_score = 100.0 - final_confidence
+                else:
+                    # Clean text predicted REAL by ML → respect ML REAL prediction
+                    final_prediction = "REAL"
+                    final_confidence = round(max(ml_confidence, 65.0), 1)
+                    final_score = final_confidence
             else:
-                # ML says REAL but with low confidence + no web results → lean FAKE
+                # ML says FAKE + no web corroboration → FAKE
                 final_prediction = "FAKE"
                 h = int(hashlib.md5(text.encode('utf-8')).hexdigest(), 16)
-                final_confidence = round(65.0 + (h % 150) / 10.0, 1)
-                final_confidence = min(final_confidence, 82.0)
+                final_confidence = round(max(ml_confidence + 3.0, 85.0), 1)
+                final_confidence = min(final_confidence, 98.0)
                 final_score = 100.0 - final_confidence
     else:
         # Search failed (network issue), fall back to ML model entirely

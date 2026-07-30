@@ -24,7 +24,29 @@ An AI-powered web application that detects fake news using **Machine Learning** 
 
 <br>
 
+## 📸 Screenshots
+
+<div align="center">
+
+### 🏠 Homepage — Dark Theme Interface
+<img src="screenshots/homepage.png" alt="Fake News Detector Homepage" width="90%">
+
+<br><br>
+
+### ✅ Real News Detection — Verified Result
+<img src="screenshots/real_prediction.png" alt="Real News Prediction Result" width="90%">
+
+<br><br>
+
+### ❌ Fake News Detection — Flagged as Unverified
+<img src="screenshots/fake_prediction.png" alt="Fake News Prediction Result" width="90%">
+
+</div>
+
+<br>
+
 ## ✨ What Makes This Different?
+
 
 Most fake news detectors just use an ML model and call it a day. **This one goes further:**
 
